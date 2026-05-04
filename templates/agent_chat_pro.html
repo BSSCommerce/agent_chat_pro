@@ -322,7 +322,8 @@
      class="acp-shell min-h-[calc(100vh-3rem)] rounded-3xl border shadow-sleek-lg transition-colors"
      style="background: var(--acp-bg); border-color: var(--acp-border); color: var(--acp-text);"
      data-agents='{{ agent_options | tojson }}'
-     data-preference='{{ preference | tojson }}'>
+     data-preference='{{ preference | tojson }}'
+     data-viewer='{{ viewer | tojson }}'>
     <div class="flex flex-col gap-4 p-4 lg:p-5">
         <header class="flex flex-col gap-4 rounded-2xl border p-4 shadow-sm md:flex-row md:items-end md:justify-between"
                 style="background: var(--acp-panel); border-color: var(--acp-border);">
@@ -377,6 +378,7 @@
                     <div class="flex items-center justify-between gap-2">
                         <div>
                             <h2 class="text-sm font-semibold uppercase tracking-wide">Threads</h2>
+                            <p id="acp-viewer-scope" class="mt-0.5 text-[11px] leading-snug" style="color: var(--acp-muted);"></p>
                             <p id="acp-thread-count" class="mt-1 text-xs" style="color: var(--acp-muted);">Loading...</p>
                         </div>
                         <button id="acp-new-thread"
@@ -561,6 +563,7 @@
     const sendIcon = document.getElementById("acp-send-icon");
     const sendSpinner = document.getElementById("acp-send-spinner");
     const statusEl = document.getElementById("acp-status");
+    const viewerScopeEl = document.getElementById("acp-viewer-scope");
     const approvalPanel = document.getElementById("acp-approval-panel");
     const forkModal = document.getElementById("acp-fork-modal");
     const forkModalBackdrop = document.getElementById("acp-fork-modal-backdrop");
@@ -570,6 +573,13 @@
     const state = {
         agents: JSON.parse(app.dataset.agents || "[]"),
         preference: JSON.parse(app.dataset.preference || "{}"),
+        viewer: (() => {
+            try {
+                return JSON.parse(app.dataset.viewer || "{}");
+            } catch {
+                return {};
+            }
+        })(),
         threads: [],
         currentThread: null,
         loadedMessages: [],
@@ -582,6 +592,8 @@
     };
 
     let threadSearchTimer = null;
+    /** Last interrupt payload from stream or resume (for debugging / future use). */
+    let pendingInterrupts = [];
 
     if (window.marked) {
         marked.setOptions({
@@ -700,10 +712,16 @@
         statusEl.style.color = isError ? "#e11d48" : "var(--acp-muted)";
     }
 
+    function hitlBlocksComposer() {
+        return approvalPanel && !approvalPanel.classList.contains("hidden");
+    }
+
     function setBusy(busy) {
         state.busy = busy;
-        sendButton.disabled = busy;
-        agentSelect.disabled = busy;
+        const lock = busy || hitlBlocksComposer();
+        sendButton.disabled = lock;
+        agentSelect.disabled = lock;
+        messageInput.readOnly = lock;
         sendIcon.classList.toggle("hidden", busy);
         sendSpinner.classList.toggle("hidden", !busy);
     }
@@ -725,8 +743,30 @@
         themeToggle.setAttribute("title", isDark ? "Light mode" : "Dark mode");
     }
 
+    function updateViewerScopeLabel() {
+        if (!viewerScopeEl) return;
+        const v = state.viewer || {};
+        const label = (v.display_name || v.username || "").trim();
+        if (label) {
+            viewerScopeEl.textContent = `Signed in as ${label} — only your threads are listed here.`;
+        } else {
+            viewerScopeEl.textContent = "Only conversations for your signed-in account are shown.";
+        }
+    }
+
+    function resetWorkspaceAfterAuthChange() {
+        state.currentThread = null;
+        state.loadedMessages = [];
+        state.threads = [];
+        clearChat();
+        hideApprovalPanel();
+        updateActiveHeader();
+        renderThreadList();
+    }
+
     async function apiFetch(url, options = {}) {
         const response = await fetch(url, {
+            credentials: "same-origin",
             ...options,
             headers: {
                 "Content-Type": "application/json",
@@ -734,6 +774,9 @@
             },
         });
         const data = await response.json().catch(() => ({}));
+        if (response.status === 401) {
+            throw new Error(data.detail || "Session expired — please sign in again.");
+        }
         if (!response.ok) {
             throw new Error(data.detail || `Request failed: ${response.status}`);
         }
@@ -1212,7 +1255,22 @@
             setStatus("Thread loaded");
             scrollChatToBottom();
         } catch (error) {
+            const msg = (error.message || "").toLowerCase();
+            const notFound = msg.includes("not found") || msg.includes("404");
             setStatus(error.message || "Failed to load thread", true);
+            if (notFound) {
+                state.currentThread = null;
+                state.loadedMessages = [];
+                clearChat();
+                hideApprovalPanel();
+                try {
+                    await fetchThreadsList();
+                } catch {
+                    /* sidebar refresh best-effort */
+                }
+                updateActiveHeader();
+                renderThreadList();
+            }
         }
     }
 
@@ -1247,38 +1305,192 @@
     }
 
     function hideApprovalPanel() {
+        pendingInterrupts = [];
         approvalPanel.classList.add("hidden");
         approvalPanel.innerHTML = "";
+        setBusy(state.busy);
+    }
+
+    function getActionRequestsFromInterrupts(interrupts) {
+        const out = [];
+        for (const interrupt of interrupts || []) {
+            for (const request of interrupt?.value?.action_requests || []) {
+                out.push(request);
+            }
+        }
+        return out;
+    }
+
+    async function sendAgentResume(resumePayload) {
+        const thread = state.currentThread;
+        const agent = selectedAgent();
+        if (!thread?.external_thread_id) {
+            throw new Error("Missing runtime thread id for this chat.");
+        }
+        if (!agent?.alias) {
+            throw new Error("Select an agent before approving tools.");
+        }
+        const response = await fetch("/api/agent/resume", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                agent_alias: agent.alias,
+                thread_id: thread.external_thread_id.trim(),
+                resume: resumePayload,
+            }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.detail || `Resume failed (${response.status})`);
+        }
+        return data;
+    }
+
+    function setHitlPanelProcessing(busy) {
+        const ids = ["acp-hitl-approve", "acp-hitl-reject", "acp-hitl-edit"];
+        for (const id of ids) {
+            const el = document.getElementById(id);
+            if (!el) continue;
+            el.disabled = Boolean(busy);
+            el.setAttribute("aria-busy", busy ? "true" : "false");
+        }
+        const progress = document.getElementById("acp-hitl-progress");
+        if (progress) {
+            progress.classList.toggle("hidden", !busy);
+        }
     }
 
     function renderApprovalPanel(interrupts) {
-        const actionRequests = [];
-        for (const interrupt of interrupts || []) {
-            for (const request of interrupt?.value?.action_requests || []) {
-                actionRequests.push(request);
-            }
+        const actionRequests = getActionRequestsFromInterrupts(interrupts);
+        pendingInterrupts = Array.isArray(interrupts) ? interrupts : [];
+        if (!actionRequests.length) {
+            approvalPanel.classList.add("hidden");
+            approvalPanel.innerHTML = "";
+            setBusy(state.busy);
+            return;
         }
-        if (!actionRequests.length) return;
         approvalPanel.classList.remove("hidden");
         approvalPanel.innerHTML = `
-            <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-                <p class="font-semibold">Approval required</p>
-                <p class="mt-1 text-xs">The agent paused before protected tool execution. Open the playground approval flow if you need to approve or edit tool calls.</p>
-                <div class="mt-3 space-y-2">
-                    ${actionRequests.map((request, index) => `
-                        <div class="rounded-xl border border-amber-200 bg-white p-3">
-                            <p class="text-xs font-semibold text-slate-900">${escapeHtml(request.name || `tool_${index + 1}`)}</p>
-                            <pre class="mt-2 overflow-x-auto rounded-lg bg-slate-950 p-2 text-[11px] text-slate-100">${escapeHtml(JSON.stringify(request.args || {}, null, 2))}</pre>
+            <div class="acp-scrollbar mx-auto max-w-3xl rounded-2xl border px-4 py-3 shadow-sm"
+                 style="border-color: color-mix(in srgb, var(--acp-accent) 38%, var(--acp-border)); background: var(--acp-panel-soft);">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div class="min-w-0 flex-1">
+                        <p class="text-[10px] font-semibold uppercase tracking-wider" style="color: var(--acp-muted);">Human in the loop</p>
+                        <p class="text-sm font-semibold leading-snug" style="color: var(--acp-text);">Approve or reject pending tools</p>
+                        <p class="mt-0.5 text-xs leading-relaxed" style="color: var(--acp-muted);">The run is paused until you choose an action below.</p>
+                    </div>
+                    <div class="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+                        <button type="button" id="acp-hitl-approve"
+                                class="rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-500 disabled:cursor-wait disabled:opacity-45">
+                            Approve
+                        </button>
+                        <button type="button" id="acp-hitl-reject"
+                                class="rounded-xl bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-rose-500 disabled:cursor-wait disabled:opacity-45">
+                            Reject
+                        </button>
+                        <button type="button" id="acp-hitl-edit"
+                                class="rounded-xl border px-3 py-1.5 text-xs font-semibold transition hover:opacity-90 disabled:cursor-wait disabled:opacity-45"
+                                style="border-color: var(--acp-border); background: var(--acp-panel); color: var(--acp-text);">
+                            Edit args
+                        </button>
+                    </div>
+                </div>
+                <p id="acp-hitl-progress"
+                   class="mt-2 hidden text-xs font-medium motion-safe:animate-pulse"
+                   role="status"
+                   aria-live="polite"
+                   style="color: var(--acp-accent);">
+                    Processing your decision…
+                </p>
+                <div class="mt-3 max-h-40 space-y-2 overflow-y-auto pr-0.5 acp-scrollbar">
+                    ${actionRequests.map((req, index) => `
+                        <div class="rounded-xl border px-3 py-2" style="border-color: var(--acp-border); background: var(--acp-panel);">
+                            <p class="truncate text-xs font-semibold" style="color: var(--acp-text);">${escapeHtml(req.name || `tool_${index + 1}`)}</p>
+                            ${req.description ? `<p class="mt-0.5 text-[11px] leading-snug" style="color: var(--acp-muted);">${escapeHtml(req.description)}</p>` : ""}
+                            <pre class="acp-scrollbar mt-1.5 max-h-24 overflow-x-auto overflow-y-auto rounded-lg p-2 text-[11px] leading-relaxed"
+                                 style="background: #0b1220; color: #e2e8f0; border: 1px solid color-mix(in srgb, var(--acp-border) 60%, #1e293b);">${escapeHtml(JSON.stringify(req.args || {}, null, 2))}</pre>
                         </div>
                     `).join("")}
                 </div>
             </div>
         `;
+
+        document.getElementById("acp-hitl-approve")?.addEventListener("click", () => {
+            void resumeFromHitlPanel({ decisions: actionRequests.map(() => ({ type: "approve" })) });
+        });
+        document.getElementById("acp-hitl-reject")?.addEventListener("click", () => {
+            void resumeFromHitlPanel({
+                decisions: actionRequests.map(() => ({
+                    type: "reject",
+                    message: "Rejected in Agent Chat Pro",
+                })),
+            });
+        });
+        document.getElementById("acp-hitl-edit")?.addEventListener("click", () => {
+            const first = actionRequests[0];
+            if (!first) return;
+            const raw = window.prompt("Edit JSON args for the first tool call", JSON.stringify(first.args || {}, null, 2));
+            if (raw === null) return;
+            let editedArgs = {};
+            try {
+                editedArgs = JSON.parse(raw);
+            } catch {
+                setStatus("Invalid JSON for tool args", true);
+                return;
+            }
+            void resumeFromHitlPanel({
+                decisions: actionRequests.map((req, idx) =>
+                    idx === 0
+                        ? { type: "edit", edited_action: { name: req.name, args: editedArgs } }
+                        : { type: "approve" },
+                ),
+            });
+        });
+        setBusy(state.busy);
+    }
+
+    async function resumeFromHitlPanel(resumePayload) {
+        const thread = state.currentThread;
+        if (!thread?.id) {
+            setStatus("No active thread to resume.", true);
+            return;
+        }
+        setBusy(true);
+        setHitlPanelProcessing(true);
+        setStatus("Resuming agent…");
+        try {
+            const data = await sendAgentResume(resumePayload);
+            hideApprovalPanel();
+            if (data.status === "interrupted" && Array.isArray(data.interrupts) && data.interrupts.length) {
+                renderApprovalPanel(data.interrupts);
+                const msg = "Still waiting for approval after your decision.";
+                appendBubble("assistant", msg);
+                await saveMessage(thread.id, "assistant", msg, "interrupted");
+                await reloadCurrentThreadMessages();
+                await refreshThreads();
+                setStatus("Waiting for approval", true);
+                return;
+            }
+            const answer = (data.result || "").trim() || "(empty response)";
+            appendBubble("assistant", answer);
+            await saveMessage(thread.id, "assistant", answer, "completed");
+            await reloadCurrentThreadMessages();
+            await refreshThreads();
+            setStatus("Done");
+        } catch (error) {
+            setStatus(error.message || "Resume failed", true);
+            appendBubble("assistant", `Error: ${error.message || "Resume failed"}`, "error");
+        } finally {
+            setHitlPanelProcessing(false);
+            setBusy(false);
+        }
     }
 
     async function sendStream(thread, queryText) {
         const response = await fetch("/api/agent/query/stream", {
             method: "POST",
+            credentials: "same-origin",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 query: queryText,
@@ -1310,6 +1522,12 @@
             if (eventType === "error") {
                 throw new Error(payload.detail || "Stream error");
             }
+            if (eventType === "start" && payload.thread_id && thread?.external_thread_id) {
+                const sid = String(payload.thread_id).trim();
+                if (sid && sid !== String(thread.external_thread_id).trim()) {
+                    setStatus("Stream thread id mismatch — check agent runtime.", true);
+                }
+            }
             if ((eventType === "step" || eventType === "answer" || eventType === "message") && payload.message) {
                 finalAnswer = payload.message;
                 finalizeStreamingAssistantBubble(assistantBubble);
@@ -1325,7 +1543,11 @@
                 renderApprovalPanel(payload.interrupts);
                 setStatus("Waiting for approval", true);
             }
-            if (eventType === "done" && !interrupted) {
+            if (eventType === "done") {
+                if (payload.status === "interrupted") {
+                    interrupted = true;
+                    return;
+                }
                 hideApprovalPanel();
             }
         }
@@ -1426,6 +1648,14 @@
         updateActiveHeader();
         try {
             const data = await apiFetch("/agent-chat-pro/api/bootstrap");
+            const incoming = data.viewer;
+            const prevId = state.viewer && state.viewer.id ? String(state.viewer.id) : "";
+            if (incoming && incoming.id && prevId && String(incoming.id) !== prevId) {
+                resetWorkspaceAfterAuthChange();
+            }
+            if (incoming && incoming.id) {
+                state.viewer = incoming;
+            }
             state.agents = data.agents || state.agents;
             state.preference = data.preference || state.preference;
             state.threads = data.threads || [];
@@ -1435,10 +1665,12 @@
             applyTheme(state.preference.theme || "light");
             renderThreadList();
             updateActiveHeader();
+            updateViewerScopeLabel();
             setStatus("Ready");
         } catch (error) {
             setStatus(error.message || "Failed to load workspace", true);
             renderThreadList();
+            updateViewerScopeLabel();
         }
     }
 
@@ -1526,6 +1758,7 @@
         }
     });
 
+    updateViewerScopeLabel();
     void bootstrap();
 })();
 </script>

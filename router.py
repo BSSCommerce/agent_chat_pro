@@ -1,4 +1,9 @@
-"""Routes for Agent Chat Pro community plugin."""
+"""Routes for Agent Chat Pro community plugin.
+
+Every thread and message endpoint authenticates the current session user and
+scopes data with ``AgentChatProThread.user_id == user.id``. Other accounts'
+threads never appear in list/bootstrap APIs and return 404 from detail routes.
+"""
 
 from __future__ import annotations
 
@@ -218,6 +223,18 @@ def _thread_for_user(db: Session, user: User, thread_id: int) -> AgentChatProThr
     )
 
 
+def _viewer_payload(user: User) -> dict[str, Any]:
+    """Non-sensitive identity for UI + client-side session checks."""
+    display = (getattr(user, "full_name", None) or "").strip() or (
+        (user.username or "").strip() or (user.email or "").strip()
+    )
+    return {
+        "id": str(user.id),
+        "username": (user.username or "").strip(),
+        "display_name": display,
+    }
+
+
 def _default_title_from_message(content: str) -> str:
     normalized = " ".join((content or "").split())
     if not normalized:
@@ -256,6 +273,7 @@ async def agent_chat_pro_page(request: Request, db: Session = Depends(get_db_acp
                 if (agent.alias or "").strip()
             ],
             "preference": _preference_payload(db, preference),
+            "viewer": _viewer_payload(user),
         },
     )
 
@@ -289,6 +307,7 @@ async def bootstrap_api(request: Request, db: Session = Depends(get_db_acp)):
     return JSONResponse(
         content={
             "ok": True,
+            "viewer": _viewer_payload(user),
             "agents": [_agent_payload(agent) for agent in agents if (agent.alias or "").strip()],
             "preference": _preference_payload(db, preference),
             "threads": [_thread_payload(db, thread) for thread in threads],
