@@ -1,0 +1,1202 @@
+{% extends "base.html" %}
+
+{% block title %}Agent Chat Pro{% endblock %}
+
+{% block head %}
+<style>
+    .acp-shell {
+        --acp-bg: #f8fafc;
+        --acp-panel: #ffffff;
+        --acp-panel-soft: #f1f5f9;
+        --acp-border: rgba(203, 213, 225, 0.8);
+        --acp-text: #0f172a;
+        --acp-muted: #64748b;
+        --acp-accent: #4f46e5;
+        --acp-accent-soft: #eef2ff;
+        --acp-user: #111827;
+        --acp-assistant: #ffffff;
+    }
+    .acp-shell.acp-dark {
+        --acp-bg: #020617;
+        --acp-panel: #0f172a;
+        --acp-panel-soft: #111827;
+        --acp-border: rgba(51, 65, 85, 0.9);
+        --acp-text: #e5e7eb;
+        --acp-muted: #94a3b8;
+        --acp-accent: #818cf8;
+        --acp-accent-soft: rgba(99, 102, 241, 0.16);
+        --acp-user: #4f46e5;
+        --acp-assistant: #111827;
+    }
+    .acp-scrollbar::-webkit-scrollbar { width: 10px; height: 10px; }
+    .acp-scrollbar::-webkit-scrollbar-thumb {
+        background: color-mix(in srgb, var(--acp-muted) 35%, transparent);
+        border-radius: 999px;
+        border: 3px solid transparent;
+        background-clip: content-box;
+    }
+    .acp-prose pre {
+        overflow-x: auto;
+        border-radius: 0.75rem;
+        padding: 0.75rem;
+        background: #020617;
+        color: #e5e7eb;
+    }
+    .acp-prose code {
+        font-size: 0.86em;
+    }
+    .acp-theme-toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 2.5rem;
+        height: 2.5rem;
+        flex-shrink: 0;
+        border-radius: 9999px;
+        border: 1px solid var(--acp-border);
+        background: var(--acp-panel-soft);
+        color: var(--acp-text);
+        transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    }
+    .acp-theme-toggle:hover {
+        background: var(--acp-panel);
+        transform: scale(1.05);
+    }
+    .acp-theme-toggle:focus-visible {
+        outline: 2px solid var(--acp-accent);
+        outline-offset: 2px;
+    }
+    .acp-msg-toolbar {
+        position: absolute;
+        bottom: 0.35rem;
+        right: 0.35rem;
+        top: auto;
+        left: auto;
+        z-index: 2;
+        display: flex;
+        gap: 0.125rem;
+        border-radius: 0.5rem;
+        padding: 0.125rem;
+        background: color-mix(in srgb, var(--acp-panel) 94%, transparent);
+        border: 1px solid var(--acp-border);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.15s ease;
+    }
+    .acp-msg-group:hover .acp-msg-toolbar,
+    .acp-msg-group:focus-within .acp-msg-toolbar {
+        opacity: 1;
+        pointer-events: auto;
+    }
+    @media (hover: none) and (pointer: coarse) {
+        .acp-msg-toolbar {
+            opacity: 1;
+            pointer-events: auto;
+        }
+    }
+    .acp-icon-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.75rem;
+        height: 1.75rem;
+        border-radius: 0.375rem;
+        border: none;
+        background: transparent;
+        color: var(--acp-muted);
+        cursor: pointer;
+        transition: color 0.15s ease, background 0.15s ease;
+    }
+    .acp-icon-btn:hover {
+        color: var(--acp-text);
+        background: var(--acp-panel-soft);
+    }
+    .acp-icon-btn:focus-visible {
+        outline: 2px solid var(--acp-accent);
+        outline-offset: 1px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="acp-app"
+     class="acp-shell min-h-[calc(100vh-3rem)] rounded-3xl border shadow-sleek-lg transition-colors"
+     style="background: var(--acp-bg); border-color: var(--acp-border); color: var(--acp-text);"
+     data-agents='{{ agent_options | tojson }}'
+     data-preference='{{ preference | tojson }}'>
+    <div class="flex flex-col gap-4 p-4 lg:p-5">
+        <header class="flex flex-col gap-4 rounded-2xl border p-4 shadow-sm md:flex-row md:items-end md:justify-between"
+                style="background: var(--acp-panel); border-color: var(--acp-border);">
+            <div class="min-w-0 md:pr-4">
+                <div class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold"
+                     style="background: var(--acp-accent-soft); color: var(--acp-accent);">
+                    Single Agent Workspace
+                </div>
+                <h1 class="mt-3 text-2xl font-semibold tracking-tight">Agent Chat Pro</h1>
+                <p class="mt-1 max-w-2xl text-sm" style="color: var(--acp-muted);">
+                    Chat with one visible agent, keep every conversation as a retrievable thread, and continue exactly where you left off.
+                </p>
+            </div>
+            <div class="w-full min-w-0 md:max-w-md md:flex-shrink-0">
+                <span id="acp-agent-label" class="mb-1 block text-xs font-semibold uppercase tracking-wide" style="color: var(--acp-muted);">Default agent</span>
+                <div class="flex items-end gap-2">
+                    <select id="acp-agent-select"
+                            aria-labelledby="acp-agent-label"
+                            class="min-h-[2.5rem] min-w-0 flex-1 rounded-xl border px-3 py-2 text-sm outline-none transition focus:ring-4"
+                            style="border-color: var(--acp-border); background: var(--acp-panel-soft); color: var(--acp-text); --tw-ring-color: color-mix(in srgb, var(--acp-accent) 25%, transparent);">
+                        <option value="">Select an agent</option>
+                        {% for agent in agent_options %}
+                        <option value="{{ agent.alias }}">{{ agent.name }} ({{ agent.alias }})</option>
+                        {% endfor %}
+                    </select>
+                    <button id="acp-theme-toggle"
+                            type="button"
+                            class="acp-theme-toggle"
+                            aria-label="Switch color theme"
+                            title="Switch theme">
+                        <span id="acp-theme-icon-moon" class="inline-flex" aria-hidden="true">
+                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                      d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                            </svg>
+                        </span>
+                        <span id="acp-theme-icon-sun" class="hidden inline-flex" aria-hidden="true">
+                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                      d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                            </svg>
+                        </span>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <div class="grid min-h-[680px] grid-cols-1 gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
+            <aside class="flex min-h-[640px] flex-col rounded-2xl border shadow-sm"
+                   style="background: var(--acp-panel); border-color: var(--acp-border);">
+                <div class="border-b p-4" style="border-color: var(--acp-border);">
+                    <div class="flex items-center justify-between gap-2">
+                        <div>
+                            <h2 class="text-sm font-semibold uppercase tracking-wide">Threads</h2>
+                            <p id="acp-thread-count" class="mt-1 text-xs" style="color: var(--acp-muted);">Loading...</p>
+                        </div>
+                        <button id="acp-new-thread"
+                                type="button"
+                                class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white shadow-sm transition hover:opacity-90"
+                                style="background: var(--acp-accent);"
+                                title="New thread"
+                                aria-label="New thread">
+                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                            </svg>
+                        </button>
+                    </div>
+                    <label class="mt-4 block">
+                        <span class="sr-only">Search threads</span>
+                        <input id="acp-thread-search"
+                               type="search"
+                               placeholder="Search conversation..."
+                               class="w-full rounded-xl border px-3 py-2 text-sm outline-none transition focus:ring-4"
+                               style="border-color: var(--acp-border); background: var(--acp-panel-soft); color: var(--acp-text); --tw-ring-color: color-mix(in srgb, var(--acp-accent) 25%, transparent);">
+                    </label>
+                </div>
+                <div id="acp-thread-list" class="acp-scrollbar flex-1 space-y-2 overflow-y-auto p-3">
+                    <div class="rounded-xl border border-dashed p-4 text-sm" style="border-color: var(--acp-border); color: var(--acp-muted);">
+                        Your saved threads will appear here.
+                    </div>
+                </div>
+            </aside>
+
+            <main class="flex min-h-[640px] flex-col overflow-hidden rounded-2xl border shadow-sm"
+                  style="background: var(--acp-panel); border-color: var(--acp-border);">
+                <div class="flex flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between"
+                     style="border-color: var(--acp-border);">
+                    <div class="min-w-0">
+                        <h2 id="acp-active-title" class="truncate text-lg font-semibold">New conversation</h2>
+                        <p id="acp-active-meta" class="mt-1 text-xs" style="color: var(--acp-muted);">Select an agent and send a message to start.</p>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <button id="acp-rename-thread"
+                                type="button"
+                                class="acp-icon-btn inline-flex h-10 w-10 items-center justify-center rounded-xl border transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                                style="border-color: var(--acp-border); background: var(--acp-panel-soft); color: var(--acp-text);"
+                                title="Rename thread"
+                                aria-label="Rename thread">
+                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                      d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                            </svg>
+                        </button>
+                        <button id="acp-delete-thread"
+                                type="button"
+                                class="acp-icon-btn inline-flex h-10 w-10 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                title="Delete thread"
+                                aria-label="Delete thread">
+                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="acp-chat-feed"
+                     class="acp-scrollbar flex-1 space-y-4 overflow-y-auto p-4 md:p-6"
+                     style="background: linear-gradient(180deg, var(--acp-panel-soft), var(--acp-panel));">
+                    <div id="acp-empty-state"
+                         class="mx-auto mt-20 max-w-md rounded-2xl border border-dashed p-6 text-center"
+                         style="border-color: var(--acp-border); background: var(--acp-panel);">
+                        <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl text-white"
+                             style="background: var(--acp-accent);">
+                            <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 4v-4z" />
+                            </svg>
+                        </div>
+                        <h3 class="mt-4 text-base font-semibold">Start a focused agent conversation</h3>
+                        <p class="mt-2 text-sm" style="color: var(--acp-muted);">
+                            Choose an agent once. Agent Chat Pro saves that choice, keeps thread history, and lets you resume later.
+                        </p>
+                    </div>
+                </div>
+
+                <div id="acp-approval-panel" class="hidden border-t p-4" style="border-color: var(--acp-border);"></div>
+
+                <form id="acp-composer" class="border-t p-4" style="border-color: var(--acp-border);">
+                    <div class="flex items-end gap-3">
+                        <label class="min-w-0 flex-1">
+                            <span class="sr-only">Message</span>
+                            <textarea id="acp-message-input"
+                                      rows="3"
+                                      placeholder="Ask your selected agent..."
+                                      class="acp-scrollbar max-h-48 min-h-24 w-full resize-y rounded-2xl border px-4 py-3 text-sm outline-none transition focus:ring-4"
+                                      style="border-color: var(--acp-border); background: var(--acp-panel-soft); color: var(--acp-text); --tw-ring-color: color-mix(in srgb, var(--acp-accent) 25%, transparent);"></textarea>
+                        </label>
+                        <button id="acp-send-button"
+                                type="submit"
+                                class="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                                style="background: var(--acp-accent);"
+                                aria-label="Send message">
+                            <span id="acp-send-icon" aria-hidden="true">
+                                <svg class="h-5 w-5 translate-x-px" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" />
+                                </svg>
+                            </span>
+                            <span id="acp-send-spinner" class="hidden" aria-hidden="true">
+                                <svg class="h-5 w-5 animate-spin" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                            </span>
+                        </button>
+                    </div>
+                    <div class="mt-2 flex flex-col gap-1 text-xs sm:flex-row sm:items-center sm:justify-between" style="color: var(--acp-muted);">
+                        <span>Enter to send · Shift+Enter for a new line</span>
+                        <span id="acp-status">Idle</span>
+                    </div>
+                </form>
+            </main>
+        </div>
+    </div>
+
+    <div id="acp-fork-modal"
+         class="hidden fixed inset-0 z-[100] flex items-center justify-center p-4"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="acp-fork-modal-title"
+         aria-hidden="true">
+        <button type="button"
+                id="acp-fork-modal-backdrop"
+                class="absolute inset-0 cursor-default border-0 bg-slate-900/55 backdrop-blur-[2px]"
+                aria-label="Close dialog"></button>
+        <div class="relative z-10 w-full max-w-md rounded-2xl border p-6 shadow-2xl"
+             style="background: var(--acp-panel); border-color: var(--acp-border); color: var(--acp-text);">
+            <h3 id="acp-fork-modal-title" class="text-lg font-semibold tracking-tight">Fork this thread?</h3>
+            <p class="mt-2 text-sm leading-relaxed" style="color: var(--acp-muted);">
+                A new saved thread opens with a fresh LangGraph runtime id. Messages up to this reply are copied into the new thread;
+                your next send there includes that transcript once for the model, then continues normally.
+            </p>
+            <div class="mt-6 flex flex-wrap justify-end gap-2">
+                <button type="button"
+                        id="acp-fork-modal-cancel"
+                        class="rounded-xl border px-4 py-2 text-sm font-semibold transition hover:opacity-90"
+                        style="border-color: var(--acp-border); background: var(--acp-panel-soft); color: var(--acp-text);">
+                    Cancel
+                </button>
+                <button type="button"
+                        id="acp-fork-modal-confirm"
+                        class="rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+                        style="background: var(--acp-accent);">
+                    Fork thread
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.7/dist/purify.min.js"></script>
+<script>
+(() => {
+    const app = document.getElementById("acp-app");
+    const agentSelect = document.getElementById("acp-agent-select");
+    const themeToggle = document.getElementById("acp-theme-toggle");
+    const themeIconMoon = document.getElementById("acp-theme-icon-moon");
+    const themeIconSun = document.getElementById("acp-theme-icon-sun");
+    const threadList = document.getElementById("acp-thread-list");
+    const threadCount = document.getElementById("acp-thread-count");
+    const threadSearch = document.getElementById("acp-thread-search");
+    const newThreadBtn = document.getElementById("acp-new-thread");
+    const renameThreadBtn = document.getElementById("acp-rename-thread");
+    const deleteThreadBtn = document.getElementById("acp-delete-thread");
+    const activeTitle = document.getElementById("acp-active-title");
+    const activeMeta = document.getElementById("acp-active-meta");
+    const chatFeed = document.getElementById("acp-chat-feed");
+    const emptyState = document.getElementById("acp-empty-state");
+    const composer = document.getElementById("acp-composer");
+    const messageInput = document.getElementById("acp-message-input");
+    const sendButton = document.getElementById("acp-send-button");
+    const sendIcon = document.getElementById("acp-send-icon");
+    const sendSpinner = document.getElementById("acp-send-spinner");
+    const statusEl = document.getElementById("acp-status");
+    const approvalPanel = document.getElementById("acp-approval-panel");
+    const forkModal = document.getElementById("acp-fork-modal");
+    const forkModalBackdrop = document.getElementById("acp-fork-modal-backdrop");
+    const forkModalCancel = document.getElementById("acp-fork-modal-cancel");
+    const forkModalConfirm = document.getElementById("acp-fork-modal-confirm");
+
+    const state = {
+        agents: JSON.parse(app.dataset.agents || "[]"),
+        preference: JSON.parse(app.dataset.preference || "{}"),
+        threads: [],
+        currentThread: null,
+        loadedMessages: [],
+        busy: false,
+        loadingOlder: false,
+        messagesHasOlder: false,
+        messagesOldestId: null,
+        messagesTotal: 0,
+        pendingForkMessageId: null,
+    };
+
+    let threadSearchTimer = null;
+
+    function escapeHtml(raw) {
+        return String(raw || "")
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#39;");
+    }
+
+    function renderMarkdown(target, markdownText) {
+        const md = markdownText || "";
+        try {
+            if (window.marked && window.DOMPurify) {
+                marked.setOptions({ gfm: true, breaks: true });
+                target.innerHTML = DOMPurify.sanitize(marked.parse(md));
+                return;
+            }
+        } catch {
+            // Plain-text fallback is safer than rendering untrusted HTML.
+        }
+        target.innerHTML = escapeHtml(md).replaceAll("\n", "<br>");
+    }
+
+    function setStatus(text, isError = false) {
+        statusEl.textContent = text;
+        statusEl.style.color = isError ? "#e11d48" : "var(--acp-muted)";
+    }
+
+    function setBusy(busy) {
+        state.busy = busy;
+        sendButton.disabled = busy;
+        agentSelect.disabled = busy;
+        sendIcon.classList.toggle("hidden", busy);
+        sendSpinner.classList.toggle("hidden", !busy);
+    }
+
+    function selectedAgent() {
+        const alias = (agentSelect.value || "").trim();
+        return state.agents.find((agent) => agent.alias === alias) || null;
+    }
+
+    function applyTheme(theme) {
+        const normalized = theme === "dark" ? "dark" : "light";
+        state.preference.theme = normalized;
+        app.classList.toggle("acp-dark", normalized === "dark");
+        // Light UI → show moon (switch to dark). Dark UI → show sun (switch to light).
+        const isDark = normalized === "dark";
+        themeIconMoon.classList.toggle("hidden", isDark);
+        themeIconSun.classList.toggle("hidden", !isDark);
+        themeToggle.setAttribute("aria-label", isDark ? "Switch to light mode" : "Switch to dark mode");
+        themeToggle.setAttribute("title", isDark ? "Light mode" : "Dark mode");
+    }
+
+    async function apiFetch(url, options = {}) {
+        const response = await fetch(url, {
+            ...options,
+            headers: {
+                "Content-Type": "application/json",
+                ...(options.headers || {}),
+            },
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.detail || `Request failed: ${response.status}`);
+        }
+        return data;
+    }
+
+    async function savePreference(patch) {
+        try {
+            const data = await apiFetch("/agent-chat-pro/api/preferences", {
+                method: "POST",
+                body: JSON.stringify(patch),
+            });
+            state.preference = data.preference || state.preference;
+        } catch (error) {
+            setStatus(error.message || "Failed to save preference", true);
+        }
+    }
+
+    function formatRelative(iso) {
+        if (!iso) return "Just now";
+        const then = new Date(iso).getTime();
+        const seconds = Math.max(1, Math.floor((Date.now() - then) / 1000));
+        if (seconds < 60) return "Just now";
+        const minutes = Math.floor(seconds / 60);
+        if (minutes < 60) return `${minutes}m ago`;
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return `${hours}h ago`;
+        const days = Math.floor(hours / 24);
+        return `${days}d ago`;
+    }
+
+    function renderThreadList() {
+        const threads = state.threads || [];
+        const query = (threadSearch.value || "").trim();
+        threadCount.textContent = `${threads.length} saved thread${threads.length === 1 ? "" : "s"}`;
+        if (!threads.length) {
+            threadList.innerHTML = `
+                <div class="rounded-xl border border-dashed p-4 text-sm" style="border-color: var(--acp-border); color: var(--acp-muted);">
+                    ${query ? "No matching threads in search." : "No saved threads yet."}
+                </div>
+            `;
+            return;
+        }
+        threadList.innerHTML = threads.map((thread) => {
+            const active = state.currentThread && state.currentThread.id === thread.id;
+            const last = thread.last_message?.content || "No messages yet";
+            return `
+                <button type="button"
+                        data-thread-id="${thread.id}"
+                        class="w-full rounded-xl border p-3 text-left transition hover:opacity-90 ${active ? "ring-2" : ""}"
+                        style="border-color: ${active ? "var(--acp-accent)" : "var(--acp-border)"}; background: ${active ? "var(--acp-accent-soft)" : "var(--acp-panel-soft)"}; --tw-ring-color: color-mix(in srgb, var(--acp-accent) 40%, transparent);">
+                    <div class="flex items-start justify-between gap-2">
+                        <p class="min-w-0 truncate text-sm font-semibold" style="color: var(--acp-text);">${escapeHtml(thread.title || "New chat")}</p>
+                        <span class="shrink-0 text-[11px]" style="color: var(--acp-muted);">${formatRelative(thread.updated_at)}</span>
+                    </div>
+                    <p class="mt-1 truncate text-xs" style="color: var(--acp-muted);">${escapeHtml(thread.agent?.name || thread.agent?.alias || "Unknown agent")}</p>
+                    <p class="mt-2 line-clamp-2 text-xs" style="color: var(--acp-muted);">${escapeHtml(last)}</p>
+                </button>
+            `;
+        }).join("");
+        threadList.querySelectorAll("[data-thread-id]").forEach((button) => {
+            button.addEventListener("click", () => loadThread(Number(button.dataset.threadId)));
+        });
+    }
+
+    async function fetchThreadsList() {
+        const q = (threadSearch.value || "").trim();
+        const suffix = q ? `?q=${encodeURIComponent(q)}` : "";
+        const data = await apiFetch(`/agent-chat-pro/api/threads${suffix}`);
+        state.threads = data.threads || [];
+        renderThreadList();
+    }
+
+    function scheduleThreadSearch() {
+        if (threadSearchTimer) {
+            clearTimeout(threadSearchTimer);
+        }
+        threadSearchTimer = setTimeout(() => {
+            threadSearchTimer = null;
+            void fetchThreadsList().catch((error) => {
+                setStatus(error.message || "Thread search failed", true);
+            });
+        }, 320);
+    }
+
+    function clearChat() {
+        chatFeed.querySelectorAll("[data-message-bubble]").forEach((node) => node.remove());
+        document.getElementById("acp-load-older")?.remove();
+        emptyState.classList.remove("hidden");
+    }
+
+    function applyPaginationFromResponse(data) {
+        const p = data.pagination || {};
+        state.messagesHasOlder = Boolean(p.has_older);
+        state.messagesOldestId = p.oldest_loaded_id != null ? Number(p.oldest_loaded_id) : null;
+        state.messagesTotal = typeof p.total === "number" ? p.total : (data.messages || []).length;
+    }
+
+    function ensureLoadOlderBar() {
+        let bar = document.getElementById("acp-load-older");
+        if (!state.messagesHasOlder) {
+            if (bar) bar.remove();
+            return;
+        }
+        if (!bar) {
+            bar = document.createElement("div");
+            bar.id = "acp-load-older";
+            bar.className = "flex justify-center py-2";
+            chatFeed.insertBefore(bar, chatFeed.firstChild);
+        }
+        const disabled = state.loadingOlder || state.busy;
+        bar.innerHTML = `
+            <button type="button"
+                    id="acp-load-older-btn"
+                    class="rounded-full border px-4 py-1.5 text-xs font-semibold transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                    style="border-color: var(--acp-border); background: var(--acp-panel-soft); color: var(--acp-text);"
+                    ${disabled ? "disabled" : ""}>
+                Load older messages
+            </button>
+        `;
+        const btn = document.getElementById("acp-load-older-btn");
+        if (btn && !disabled) {
+            btn.addEventListener("click", () => void loadOlderMessages());
+        }
+    }
+
+    function scrollChatToBottom() {
+        chatFeed.scrollTop = chatFeed.scrollHeight;
+    }
+
+    /** Ephemeral bubble (streaming / errors) without message toolbar. */
+    function appendBubble(role, content, status = "completed") {
+        emptyState.classList.add("hidden");
+        const wrap = document.createElement("div");
+        wrap.dataset.messageBubble = "true";
+        wrap.dataset.messageId = "";
+        wrap.className = role === "user" ? "flex justify-end" : "flex justify-start";
+
+        const bubble = document.createElement("div");
+        bubble.className = role === "user"
+            ? "max-w-[86%] rounded-2xl rounded-br-md px-4 py-3 text-sm leading-relaxed text-white shadow-sm"
+            : "acp-prose max-w-[86%] rounded-2xl rounded-bl-md border px-4 py-3 text-sm leading-relaxed shadow-sm";
+        bubble.style.background = role === "user" ? "var(--acp-user)" : "var(--acp-assistant)";
+        bubble.style.borderColor = "var(--acp-border)";
+        bubble.style.color = role === "user" ? "#ffffff" : "var(--acp-text)";
+        if (status === "error") {
+            bubble.style.borderColor = "#fecdd3";
+            bubble.style.background = "#fff1f2";
+            bubble.style.color = "#9f1239";
+        }
+
+        if (role === "assistant") {
+            renderMarkdown(bubble, content);
+        } else {
+            bubble.textContent = content;
+        }
+        wrap.appendChild(bubble);
+        chatFeed.appendChild(wrap);
+        scrollChatToBottom();
+        return bubble;
+    }
+
+    function svgIconClipboard() {
+        return `<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+        </svg>`;
+    }
+
+    function svgIconFork() {
+        return `<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M6 3v12a3 3 0 003 3h6a3 3 0 003-3V3M9 21h6" />
+        </svg>`;
+    }
+
+    function buildMessageBubbleWrap(message) {
+        const role = (message.role || "").toLowerCase();
+        const content = message.content || "";
+        const status = message.status || "completed";
+        const id = message.id;
+
+        emptyState.classList.add("hidden");
+        const wrap = document.createElement("div");
+        wrap.dataset.messageBubble = "true";
+        wrap.dataset.messageId = id != null ? String(id) : "";
+        wrap.className =
+            role === "user"
+                ? "flex w-full flex-col items-end"
+                : "acp-msg-group group relative flex w-full flex-col items-start";
+
+        const row = document.createElement("div");
+        row.className = role === "user" ? "flex w-full justify-end" : "flex w-full justify-start";
+
+        const inner = document.createElement("div");
+        inner.className = "relative max-w-[86%]";
+
+        const bubble = document.createElement("div");
+        bubble.className = role === "user"
+            ? "rounded-2xl rounded-br-md px-4 py-3 text-sm leading-relaxed text-white shadow-sm"
+            : "acp-prose rounded-2xl rounded-bl-md border px-4 py-3 text-sm leading-relaxed shadow-sm";
+        bubble.style.background = role === "user" ? "var(--acp-user)" : "var(--acp-assistant)";
+        bubble.style.borderColor = "var(--acp-border)";
+        bubble.style.color = role === "user" ? "#ffffff" : "var(--acp-text)";
+        if (status === "error") {
+            bubble.style.borderColor = "#fecdd3";
+            bubble.style.background = "#fff1f2";
+            bubble.style.color = "#9f1239";
+        }
+        if (role === "assistant") {
+            renderMarkdown(bubble, content);
+        } else {
+            bubble.textContent = content;
+        }
+
+        inner.appendChild(bubble);
+
+        if (role === "assistant") {
+            const toolbar = document.createElement("div");
+            toolbar.className = "acp-msg-toolbar";
+            toolbar.setAttribute("role", "toolbar");
+
+            const copyBtn = document.createElement("button");
+            copyBtn.type = "button";
+            copyBtn.className = "acp-icon-btn";
+            copyBtn.title = "Copy message";
+            copyBtn.setAttribute("aria-label", "Copy message");
+            copyBtn.innerHTML = svgIconClipboard();
+            copyBtn.addEventListener("click", async () => {
+                try {
+                    await navigator.clipboard.writeText(content);
+                    setStatus("Copied to clipboard");
+                } catch {
+                    setStatus("Copy failed — try selecting text manually", true);
+                }
+            });
+            toolbar.appendChild(copyBtn);
+
+            if (id && state.currentThread) {
+                const forkBtn = document.createElement("button");
+                forkBtn.type = "button";
+                forkBtn.className = "acp-icon-btn";
+                forkBtn.title = "Fork thread from here (new runtime thread; first send includes transcript once)";
+                forkBtn.setAttribute("aria-label", "Fork thread from here");
+                forkBtn.innerHTML = svgIconFork();
+                forkBtn.addEventListener("click", () => openForkModal(Number(id)));
+                toolbar.appendChild(forkBtn);
+            }
+
+            inner.appendChild(toolbar);
+        }
+        row.appendChild(inner);
+        wrap.appendChild(row);
+        return wrap;
+    }
+
+    function appendBubbleWithActions(message, { scroll = true } = {}) {
+        const wrap = buildMessageBubbleWrap(message);
+        chatFeed.appendChild(wrap);
+        if (scroll) scrollChatToBottom();
+        return wrap;
+    }
+
+    const ACP_QUERY_MAX = 9800;
+
+    function buildForkAugmentedQuery(priorMessages, rawUserQuery) {
+        const lines = [];
+        for (const m of priorMessages || []) {
+            const r = (m.role || "").toLowerCase();
+            const c = (m.content || "").trim();
+            if (!c) continue;
+            if (r === "system") {
+                lines.push(`[SYSTEM]\n${c}`);
+            } else {
+                lines.push(`${r.toUpperCase()}\n${c}`);
+            }
+        }
+        const header = (
+            "The following is prior conversation from a forked branch. Treat it as context, "
+            + "then answer the new user message at the end.\n\n"
+        );
+        const body = lines.join("\n\n---\n\n");
+        const tail = `\n\n---\n\n## New user message\n\n${rawUserQuery}`;
+        let out = header + body + tail;
+        if (out.length > ACP_QUERY_MAX) {
+            const budget = Math.max(500, ACP_QUERY_MAX - header.length - tail.length - 80);
+            const trimmed = body.slice(0, budget) + "\n\n[... transcript truncated for API length ...]";
+            out = header + trimmed + tail;
+        }
+        return out;
+    }
+
+    function openForkModal(messageId) {
+        if (state.busy || !state.currentThread) return;
+        state.pendingForkMessageId = messageId;
+        forkModal.classList.remove("hidden");
+        forkModal.setAttribute("aria-hidden", "false");
+        document.body.style.overflow = "hidden";
+        forkModalConfirm.focus();
+    }
+
+    function closeForkModal() {
+        forkModal.classList.add("hidden");
+        forkModal.setAttribute("aria-hidden", "true");
+        state.pendingForkMessageId = null;
+        document.body.style.overflow = "";
+    }
+
+    async function runForkApi(messageId) {
+        if (!state.currentThread || messageId == null) return;
+        setBusy(true);
+        setStatus("Forking...");
+        try {
+            const data = await apiFetch(`/agent-chat-pro/api/threads/${state.currentThread.id}/fork`, {
+                method: "POST",
+                body: JSON.stringify({ up_to_message_id: messageId }),
+            });
+            await loadThread(data.thread.id);
+            setStatus("Fork created — next message bootstraps context for the model once");
+        } catch (error) {
+            setStatus(error.message || "Fork failed", true);
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    forkModalCancel.addEventListener("click", () => closeForkModal());
+    forkModalBackdrop.addEventListener("click", () => closeForkModal());
+    forkModalConfirm.addEventListener("click", () => {
+        const id = state.pendingForkMessageId;
+        if (id == null) return;
+        closeForkModal();
+        void runForkApi(id);
+    });
+    document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape" || forkModal.classList.contains("hidden")) return;
+        event.preventDefault();
+        closeForkModal();
+    });
+
+    async function reloadCurrentThreadMessages() {
+        if (!state.currentThread) return;
+        const prev = state.loadedMessages?.length || 0;
+        const tail = Math.min(200, Math.max(20, prev + 8));
+        const data = await apiFetch(`/agent-chat-pro/api/threads/${state.currentThread.id}?limit=${tail}`);
+        state.currentThread = data.thread;
+        state.loadedMessages = data.messages || [];
+        applyPaginationFromResponse(data);
+        clearChat();
+        for (const m of state.loadedMessages) {
+            appendBubbleWithActions(m, { scroll: false });
+        }
+        ensureLoadOlderBar();
+        updateActiveHeader();
+        scrollChatToBottom();
+    }
+
+    function updateActiveHeader() {
+        const agent = selectedAgent();
+        renameThreadBtn.disabled = !state.currentThread;
+        deleteThreadBtn.disabled = !state.currentThread;
+        if (!state.currentThread) {
+            activeTitle.textContent = "New conversation";
+            activeMeta.textContent = agent
+                ? `Ready to chat with ${agent.name} (${agent.alias}).`
+                : "Select an agent and send a message to start.";
+            return;
+        }
+        activeTitle.textContent = state.currentThread.title || "New chat";
+        let meta = `${state.currentThread.agent?.name || "Agent"} · thread ${state.currentThread.external_thread_id}`;
+        if (state.currentThread.fork_bootstrap_pending) {
+            meta += " · next send includes forked context once";
+        }
+        activeMeta.textContent = meta;
+    }
+
+    async function refreshThreads() {
+        const q = (threadSearch.value || "").trim();
+        const suffix = q ? `?q=${encodeURIComponent(q)}` : "";
+        const data = await apiFetch(`/agent-chat-pro/api/threads${suffix}`);
+        state.threads = data.threads || [];
+        renderThreadList();
+    }
+
+    async function loadOlderMessages() {
+        if (!state.currentThread || state.messagesOldestId == null || !state.messagesHasOlder || state.loadingOlder) {
+            return;
+        }
+        state.loadingOlder = true;
+        ensureLoadOlderBar();
+        try {
+            const data = await apiFetch(
+                `/agent-chat-pro/api/threads/${state.currentThread.id}?limit=10&before_id=${state.messagesOldestId}`,
+            );
+            const older = data.messages || [];
+            applyPaginationFromResponse(data);
+            if (!older.length) {
+                ensureLoadOlderBar();
+                return;
+            }
+            state.loadedMessages = [...older, ...state.loadedMessages];
+            const anchor = chatFeed.querySelector("[data-message-bubble]");
+            const prevHeight = chatFeed.scrollHeight;
+            const prevTop = chatFeed.scrollTop;
+            for (const m of older) {
+                const wrap = buildMessageBubbleWrap(m);
+                chatFeed.insertBefore(wrap, anchor);
+            }
+            const delta = chatFeed.scrollHeight - prevHeight;
+            chatFeed.scrollTop = prevTop + delta;
+            ensureLoadOlderBar();
+        } catch (error) {
+            setStatus(error.message || "Failed to load older messages", true);
+        } finally {
+            state.loadingOlder = false;
+            ensureLoadOlderBar();
+        }
+    }
+
+    async function loadThread(threadId) {
+        setStatus("Loading thread...");
+        try {
+            const data = await apiFetch(`/agent-chat-pro/api/threads/${threadId}?limit=20`);
+            state.currentThread = data.thread;
+            state.loadedMessages = data.messages || [];
+            applyPaginationFromResponse(data);
+            if (data.thread?.agent?.alias) {
+                agentSelect.value = data.thread.agent.alias;
+            }
+            clearChat();
+            for (const message of state.loadedMessages) {
+                appendBubbleWithActions(message, { scroll: false });
+            }
+            ensureLoadOlderBar();
+            updateActiveHeader();
+            renderThreadList();
+            setStatus("Thread loaded");
+            scrollChatToBottom();
+        } catch (error) {
+            setStatus(error.message || "Failed to load thread", true);
+        }
+    }
+
+    async function createThreadIfNeeded() {
+        if (state.currentThread) {
+            return state.currentThread;
+        }
+        const agent = selectedAgent();
+        if (!agent) {
+            throw new Error("Please select an agent first.");
+        }
+        const data = await apiFetch("/agent-chat-pro/api/threads", {
+            method: "POST",
+            body: JSON.stringify({ agent_alias: agent.alias }),
+        });
+        state.currentThread = data.thread;
+        state.loadedMessages = [];
+        await refreshThreads();
+        updateActiveHeader();
+        return state.currentThread;
+    }
+
+    async function saveMessage(threadId, role, content, status = "completed") {
+        const data = await apiFetch(`/agent-chat-pro/api/threads/${threadId}/messages`, {
+            method: "POST",
+            body: JSON.stringify({ role, content, status }),
+        });
+        state.currentThread = data.thread || state.currentThread;
+        await refreshThreads();
+        updateActiveHeader();
+        return data.message;
+    }
+
+    function hideApprovalPanel() {
+        approvalPanel.classList.add("hidden");
+        approvalPanel.innerHTML = "";
+    }
+
+    function renderApprovalPanel(interrupts) {
+        const actionRequests = [];
+        for (const interrupt of interrupts || []) {
+            for (const request of interrupt?.value?.action_requests || []) {
+                actionRequests.push(request);
+            }
+        }
+        if (!actionRequests.length) return;
+        approvalPanel.classList.remove("hidden");
+        approvalPanel.innerHTML = `
+            <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+                <p class="font-semibold">Approval required</p>
+                <p class="mt-1 text-xs">The agent paused before protected tool execution. Open the playground approval flow if you need to approve or edit tool calls.</p>
+                <div class="mt-3 space-y-2">
+                    ${actionRequests.map((request, index) => `
+                        <div class="rounded-xl border border-amber-200 bg-white p-3">
+                            <p class="text-xs font-semibold text-slate-900">${escapeHtml(request.name || `tool_${index + 1}`)}</p>
+                            <pre class="mt-2 overflow-x-auto rounded-lg bg-slate-950 p-2 text-[11px] text-slate-100">${escapeHtml(JSON.stringify(request.args || {}, null, 2))}</pre>
+                        </div>
+                    `).join("")}
+                </div>
+            </div>
+        `;
+    }
+
+    async function sendStream(thread, queryText) {
+        const response = await fetch("/api/agent/query/stream", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                query: queryText,
+                agent_alias: thread.agent.alias,
+                thread_id: thread.external_thread_id,
+            }),
+        });
+        if (!response.ok || !response.body) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.detail || `Agent request failed: ${response.status}`);
+        }
+
+        const assistantBubble = appendBubble("assistant", "Thinking...");
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let finalAnswer = "";
+        let interrupted = false;
+
+        function applyEvent(eventName, dataText) {
+            const eventType = (eventName || "").trim() || "message";
+            if (!dataText && eventType !== "done") return;
+            let payload = {};
+            try {
+                payload = JSON.parse(dataText);
+            } catch {
+                payload = {};
+            }
+            if (eventType === "error") {
+                throw new Error(payload.detail || "Stream error");
+            }
+            if ((eventType === "step" || eventType === "answer" || eventType === "message") && payload.message) {
+                finalAnswer = payload.message;
+                renderMarkdown(assistantBubble, finalAnswer);
+                setStatus("Receiving response...");
+                scrollChatToBottom();
+            }
+            if (eventType === "interrupt" && Array.isArray(payload.interrupts) && payload.interrupts.length) {
+                interrupted = true;
+                finalAnswer = "Run paused and requires approval.";
+                renderMarkdown(assistantBubble, finalAnswer);
+                renderApprovalPanel(payload.interrupts);
+                setStatus("Waiting for approval", true);
+            }
+            if (eventType === "done" && !interrupted) {
+                hideApprovalPanel();
+            }
+        }
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+            let boundary = buffer.indexOf("\n\n");
+            while (boundary !== -1) {
+                const rawEvent = buffer.slice(0, boundary);
+                buffer = buffer.slice(boundary + 2);
+                let eventName = "";
+                const dataLines = [];
+                for (const rawLine of rawEvent.split("\n")) {
+                    const line = rawLine.trimEnd();
+                    if (line.startsWith("event:")) {
+                        eventName = line.slice(6).trim();
+                    } else if (line.startsWith("data:")) {
+                        dataLines.push(line.slice(5).trimStart());
+                    }
+                }
+                applyEvent(eventName, dataLines.join("\n"));
+                boundary = buffer.indexOf("\n\n");
+            }
+        }
+
+        if (!finalAnswer) {
+            finalAnswer = "(stream finished without visible answer)";
+            renderMarkdown(assistantBubble, finalAnswer);
+        }
+        return { answer: finalAnswer, status: interrupted ? "interrupted" : "completed" };
+    }
+
+    async function sendMessage() {
+        const rawUserQuery = (messageInput.value || "").trim();
+        if (!rawUserQuery) {
+            setStatus("Message cannot be empty.", true);
+            messageInput.focus();
+            return;
+        }
+        const agent = selectedAgent();
+        if (!agent) {
+            setStatus("Please select an agent.", true);
+            agentSelect.focus();
+            return;
+        }
+
+        const priorSnapshot = [...(state.loadedMessages || [])];
+        let agentQueryText = rawUserQuery;
+        if (state.currentThread?.fork_bootstrap_pending && priorSnapshot.length) {
+            agentQueryText = buildForkAugmentedQuery(priorSnapshot, rawUserQuery);
+        }
+
+        setBusy(true);
+        setStatus("Preparing thread...");
+        try {
+            const thread = await createThreadIfNeeded();
+            appendBubbleWithActions({ id: null, role: "user", content: rawUserQuery, status: "completed" });
+            messageInput.value = "";
+            await saveMessage(thread.id, "user", rawUserQuery);
+            await reloadCurrentThreadMessages();
+            setStatus("Streaming response...");
+            const result = await sendStream(state.currentThread, agentQueryText);
+            await saveMessage(state.currentThread.id, "assistant", result.answer, result.status);
+            if (state.currentThread?.fork_bootstrap_pending) {
+                await apiFetch(`/agent-chat-pro/api/threads/${state.currentThread.id}`, {
+                    method: "PATCH",
+                    body: JSON.stringify({ fork_bootstrap_pending: false }),
+                });
+                state.currentThread = { ...state.currentThread, fork_bootstrap_pending: false };
+            }
+            await reloadCurrentThreadMessages();
+            await refreshThreads();
+            setStatus(result.status === "interrupted" ? "Run paused for approval" : "Done");
+        } catch (error) {
+            setStatus(error.message || "Unexpected error", true);
+            appendBubble("assistant", `Error: ${error.message || "Unexpected error"}`, "error");
+            if (state.currentThread) {
+                try {
+                    await saveMessage(state.currentThread.id, "assistant", `Error: ${error.message || "Unexpected error"}`, "error");
+                    await reloadCurrentThreadMessages();
+                } catch {
+                    // The visible error is enough if persistence also fails.
+                }
+            }
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function bootstrap() {
+        applyTheme(state.preference.theme || "light");
+        if (state.preference.default_agent_alias) {
+            agentSelect.value = state.preference.default_agent_alias;
+        }
+        updateActiveHeader();
+        try {
+            const data = await apiFetch("/agent-chat-pro/api/bootstrap");
+            state.agents = data.agents || state.agents;
+            state.preference = data.preference || state.preference;
+            state.threads = data.threads || [];
+            if (state.preference.default_agent_alias) {
+                agentSelect.value = state.preference.default_agent_alias;
+            }
+            applyTheme(state.preference.theme || "light");
+            renderThreadList();
+            updateActiveHeader();
+            setStatus("Ready");
+        } catch (error) {
+            setStatus(error.message || "Failed to load workspace", true);
+            renderThreadList();
+        }
+    }
+
+    agentSelect.addEventListener("change", async () => {
+        const agent = selectedAgent();
+        updateActiveHeader();
+        if (agent) {
+            await savePreference({ default_agent_alias: agent.alias });
+        }
+    });
+
+    themeToggle.addEventListener("click", async () => {
+        const nextTheme = state.preference.theme === "dark" ? "light" : "dark";
+        applyTheme(nextTheme);
+        await savePreference({ theme: nextTheme });
+    });
+
+    threadSearch.addEventListener("input", () => scheduleThreadSearch());
+
+    newThreadBtn.addEventListener("click", () => {
+        if (state.busy) return;
+        state.currentThread = null;
+        state.loadedMessages = [];
+        clearChat();
+        hideApprovalPanel();
+        updateActiveHeader();
+        renderThreadList();
+        messageInput.focus();
+        setStatus("New conversation ready");
+    });
+
+    renameThreadBtn.addEventListener("click", async () => {
+        if (!state.currentThread || state.busy) return;
+        const nextTitle = window.prompt("Thread title", state.currentThread.title || "New chat");
+        if (nextTitle === null) return;
+        const title = nextTitle.trim();
+        if (!title) {
+            setStatus("Title cannot be empty", true);
+            return;
+        }
+        try {
+            const data = await apiFetch(`/agent-chat-pro/api/threads/${state.currentThread.id}`, {
+                method: "PATCH",
+                body: JSON.stringify({ title }),
+            });
+            state.currentThread = data.thread;
+            await refreshThreads();
+            updateActiveHeader();
+            setStatus("Thread renamed");
+        } catch (error) {
+            setStatus(error.message || "Failed to rename thread", true);
+        }
+    });
+
+    deleteThreadBtn.addEventListener("click", async () => {
+        if (!state.currentThread || state.busy) return;
+        const confirmed = window.confirm("Delete this saved thread? This hides it from your history.");
+        if (!confirmed) return;
+        try {
+            await apiFetch(`/agent-chat-pro/api/threads/${state.currentThread.id}`, { method: "DELETE" });
+            state.currentThread = null;
+            clearChat();
+            hideApprovalPanel();
+            await refreshThreads();
+            updateActiveHeader();
+            setStatus("Thread deleted");
+        } catch (error) {
+            setStatus(error.message || "Failed to delete thread", true);
+        }
+    });
+
+    composer.addEventListener("submit", (event) => {
+        event.preventDefault();
+        if (!state.busy) {
+            void sendMessage();
+        }
+    });
+
+    messageInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            if (!state.busy) {
+                void sendMessage();
+            }
+        }
+    });
+
+    void bootstrap();
+})();
+</script>
+{% endblock %}
