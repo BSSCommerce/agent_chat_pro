@@ -180,6 +180,23 @@
         outline: 2px solid var(--acp-accent);
         outline-offset: 2px;
     }
+    .acp-fullscreen-active {
+        border-radius: 0 !important;
+        min-height: 100vh !important;
+        max-height: 100vh !important;
+    }
+    .acp-fullscreen-active > .flex {
+        height: 100%;
+    }
+    .acp-fullscreen-active #acp-main-layout {
+        height: 100% !important;
+        max-height: none !important;
+    }
+    .acp-fullscreen-toggle-active {
+        background: color-mix(in srgb, var(--acp-accent-soft) 70%, var(--acp-panel)) !important;
+        border-color: color-mix(in srgb, var(--acp-accent) 40%, var(--acp-border)) !important;
+        color: var(--acp-accent) !important;
+    }
     .acp-msg-toolbar {
         position: absolute;
         bottom: 0.35rem;
@@ -367,11 +384,33 @@
                             </svg>
                         </span>
                     </button>
+                    <button id="acp-fullscreen-toggle"
+                            type="button"
+                            class="acp-theme-toggle"
+                            aria-label="Enter full screen"
+                            title="Full screen">
+                        <span id="acp-fullscreen-icon-enter" class="inline-flex" aria-hidden="true">
+                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                      d="M8 4H4v4m12-4h4v4M8 20H4v-4m12 4h4v-4" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                      d="M9 9L4 4m11 5l5-5M9 15l-5 5m11-5l5 5" />
+                            </svg>
+                        </span>
+                        <span id="acp-fullscreen-icon-exit" class="hidden inline-flex" aria-hidden="true">
+                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                      d="M9 4v5H4m11-5v5h5M9 20v-5H4m11 5v-5h5" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                      d="M9 9l-5-5m11 5l5-5M9 15l-5 5m11-5l5 5" />
+                            </svg>
+                        </span>
+                    </button>
                 </div>
             </div>
         </header>
 
-        <div class="grid min-h-0 grid-cols-1 gap-4 h-[max(380px,min(720px,calc(100vh-10rem)))] max-h-[calc(100vh-8rem)] xl:grid-cols-[320px_minmax(0,1fr)]">
+        <div id="acp-main-layout" class="grid min-h-0 grid-cols-1 gap-4 h-[max(380px,min(720px,calc(100vh-10rem)))] max-h-[calc(100vh-8rem)] xl:grid-cols-[320px_minmax(0,1fr)]">
             <aside class="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border shadow-sm"
                    style="background: var(--acp-panel); border-color: var(--acp-border);">
                 <div class="shrink-0 border-b p-4" style="border-color: var(--acp-border);">
@@ -547,6 +586,9 @@
     const themeToggle = document.getElementById("acp-theme-toggle");
     const themeIconMoon = document.getElementById("acp-theme-icon-moon");
     const themeIconSun = document.getElementById("acp-theme-icon-sun");
+    const fullscreenToggle = document.getElementById("acp-fullscreen-toggle");
+    const fullscreenIconEnter = document.getElementById("acp-fullscreen-icon-enter");
+    const fullscreenIconExit = document.getElementById("acp-fullscreen-icon-exit");
     const threadList = document.getElementById("acp-thread-list");
     const threadCount = document.getElementById("acp-thread-count");
     const threadSearch = document.getElementById("acp-thread-search");
@@ -751,6 +793,39 @@
             viewerScopeEl.textContent = `Signed in as ${label} — only your threads are listed here.`;
         } else {
             viewerScopeEl.textContent = "Only conversations for your signed-in account are shown.";
+        }
+    }
+
+    function isAppInFullscreen() {
+        const fullscreenEl = document.fullscreenElement;
+        return fullscreenEl === app || (fullscreenEl && app.contains(fullscreenEl));
+    }
+
+    function updateFullscreenUi(isFullscreen) {
+        if (!fullscreenToggle) return;
+        fullscreenIconEnter?.classList.toggle("hidden", isFullscreen);
+        fullscreenIconExit?.classList.toggle("hidden", !isFullscreen);
+        fullscreenToggle.classList.toggle("acp-fullscreen-toggle-active", isFullscreen);
+        fullscreenToggle.setAttribute("aria-label", isFullscreen ? "Exit full screen" : "Enter full screen");
+        fullscreenToggle.setAttribute("title", isFullscreen ? "Exit full screen" : "Full screen");
+        app.classList.toggle("acp-fullscreen-active", isFullscreen);
+    }
+
+    async function toggleFullscreen() {
+        if (!document.fullscreenEnabled) {
+            setStatus("Full screen is not supported in this browser.", true);
+            return;
+        }
+        try {
+            if (isAppInFullscreen()) {
+                await document.exitFullscreen();
+                updateFullscreenUi(false);
+            } else {
+                await app.requestFullscreen();
+                updateFullscreenUi(true);
+            }
+        } catch (error) {
+            setStatus(error?.message || "Unable to toggle full screen.", true);
         }
     }
 
@@ -1688,6 +1763,14 @@
         await savePreference({ theme: nextTheme });
     });
 
+    fullscreenToggle?.addEventListener("click", () => {
+        void toggleFullscreen();
+    });
+
+    document.addEventListener("fullscreenchange", () => {
+        updateFullscreenUi(isAppInFullscreen());
+    });
+
     threadSearch.addEventListener("input", () => scheduleThreadSearch());
 
     newThreadBtn.addEventListener("click", () => {
@@ -1759,6 +1842,7 @@
     });
 
     updateViewerScopeLabel();
+    updateFullscreenUi(false);
     void bootstrap();
 })();
 </script>
