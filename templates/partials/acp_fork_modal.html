@@ -1,0 +1,33 @@
+    <div id="acp-fork-modal"
+         class="hidden fixed inset-0 z-[100] flex items-center justify-center p-4"
+         role="dialog"
+         aria-modal="true"
+         aria-labelledby="acp-fork-modal-title"
+         aria-hidden="true">
+        <button type="button"
+                id="acp-fork-modal-backdrop"
+                class="absolute inset-0 cursor-default border-0 bg-slate-900/55 backdrop-blur-[2px]"
+                aria-label="Close dialog"></button>
+        <div class="relative z-10 w-full max-w-md rounded-2xl border p-6 shadow-2xl"
+             style="background: var(--acp-panel); border-color: var(--acp-border); color: var(--acp-text);">
+            <h3 id="acp-fork-modal-title" class="text-lg font-semibold tracking-tight">Fork this thread?</h3>
+            <p class="mt-2 text-sm leading-relaxed" style="color: var(--acp-muted);">
+                A new saved thread opens with a fresh LangGraph runtime id. Messages up to this reply are copied into the new thread;
+                your next send there includes that transcript once for the model, then continues normally.
+            </p>
+            <div class="mt-6 flex flex-wrap justify-end gap-2">
+                <button type="button"
+                        id="acp-fork-modal-cancel"
+                        class="rounded-xl border px-4 py-2 text-sm font-semibold transition hover:opacity-90"
+                        style="border-color: var(--acp-border); background: var(--acp-panel-soft); color: var(--acp-text);">
+                    Cancel
+                </button>
+                <button type="button"
+                        id="acp-fork-modal-confirm"
+                        class="rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+                        style="background: var(--acp-accent);">
+                    Fork thread
+                </button>
+            </div>
+        </div>
+    </div>

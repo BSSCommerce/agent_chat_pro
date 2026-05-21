@@ -1,0 +1,291 @@
+    function scrollChatToBottom() {
+        chatFeed.scrollTop = chatFeed.scrollHeight;
+    }
+
+    /** Placeholder bubble while the agent stream has not produced markdown yet. */
+    function appendThinkingAssistantBubble() {
+        emptyState.classList.add("hidden");
+        const wrap = document.createElement("div");
+        wrap.dataset.messageBubble = "true";
+        wrap.dataset.messageId = "";
+        wrap.className = "flex w-full justify-start";
+        const bubble = document.createElement("div");
+        bubble.className = "acp-thinking-bubble";
+        bubble.setAttribute("role", "status");
+        bubble.setAttribute("aria-live", "polite");
+        bubble.setAttribute("aria-label", "Assistant is thinking");
+        bubble.innerHTML = `
+            <div class="acp-thinking-inner">
+                <span class="acp-thinking-orb" aria-hidden="true"></span>
+                <span class="acp-thinking-text">Thinking</span>
+                <span class="acp-thinking-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+            </div>
+        `;
+        wrap.appendChild(bubble);
+        chatFeed.appendChild(wrap);
+        scrollChatToBottom();
+        return bubble;
+    }
+
+    /** Turn the animated thinking placeholder into a normal assistant prose bubble (once). */
+    function finalizeStreamingAssistantBubble(el) {
+        if (!el || !el.classList.contains("acp-thinking-bubble")) return;
+        el.classList.remove("acp-thinking-bubble");
+        el.classList.add(
+            "acp-prose",
+            "max-w-[86%]",
+            "rounded-2xl",
+            "rounded-bl-md",
+            "border",
+            "px-4",
+            "py-3",
+            "text-sm",
+            "leading-relaxed",
+            "shadow-sm",
+        );
+        el.removeAttribute("role");
+        el.removeAttribute("aria-live");
+        el.removeAttribute("aria-label");
+        el.style.animation = "";
+        el.style.background = "var(--acp-assistant)";
+        el.style.borderColor = "var(--acp-border)";
+        el.style.color = "var(--acp-text)";
+    }
+
+    /** Ephemeral bubble (streaming / errors) without message toolbar. */
+    function appendBubble(role, content, status = "completed") {
+        emptyState.classList.add("hidden");
+        const wrap = document.createElement("div");
+        wrap.dataset.messageBubble = "true";
+        wrap.dataset.messageId = "";
+        wrap.className = role === "user" ? "flex justify-end" : "flex justify-start";
+
+        const bubble = document.createElement("div");
+        bubble.className = role === "user"
+            ? "max-w-[86%] rounded-2xl rounded-br-md px-4 py-3 text-sm leading-relaxed text-white shadow-sm"
+            : "acp-prose max-w-[86%] rounded-2xl rounded-bl-md border px-4 py-3 text-sm leading-relaxed shadow-sm";
+        bubble.style.background = role === "user" ? "var(--acp-user)" : "var(--acp-assistant)";
+        bubble.style.borderColor = "var(--acp-border)";
+        bubble.style.color = role === "user" ? "#ffffff" : "var(--acp-text)";
+        if (status === "error") {
+            bubble.style.borderColor = "#fecdd3";
+            bubble.style.background = "#fff1f2";
+            bubble.style.color = "#9f1239";
+        }
+
+        if (role === "assistant") {
+            renderMarkdown(bubble, content);
+        } else {
+            bubble.textContent = content;
+        }
+        wrap.appendChild(bubble);
+        chatFeed.appendChild(wrap);
+        scrollChatToBottom();
+        return bubble;
+    }
+
+    function svgIconClipboard() {
+        return `<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+        </svg>`;
+    }
+
+    function svgIconFork() {
+        return `<svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M6 3v12a3 3 0 003 3h6a3 3 0 003-3V3M9 21h6" />
+        </svg>`;
+    }
+
+    function buildMessageBubbleWrap(message) {
+        const role = (message.role || "").toLowerCase();
+        const content = message.content || "";
+        const imageUrls = normalizeMessageImageUrls(message.image_urls);
+        const status = message.status || "completed";
+        const id = message.id;
+
+        emptyState.classList.add("hidden");
+        const wrap = document.createElement("div");
+        wrap.dataset.messageBubble = "true";
+        wrap.dataset.messageId = id != null ? String(id) : "";
+        wrap.className =
+            role === "user"
+                ? "flex w-full flex-col items-end"
+                : "acp-msg-group group relative flex w-full flex-col items-start";
+
+        const row = document.createElement("div");
+        row.className = role === "user" ? "flex w-full justify-end" : "flex w-full justify-start";
+
+        const inner = document.createElement("div");
+        inner.className = "relative max-w-[86%]";
+
+        const bubble = document.createElement("div");
+        bubble.className = role === "user"
+            ? "rounded-2xl rounded-br-md px-4 py-3 text-sm leading-relaxed text-white shadow-sm"
+            : "acp-prose rounded-2xl rounded-bl-md border px-4 py-3 text-sm leading-relaxed shadow-sm";
+        bubble.style.background = role === "user" ? "var(--acp-user)" : "var(--acp-assistant)";
+        bubble.style.borderColor = "var(--acp-border)";
+        bubble.style.color = role === "user" ? "#ffffff" : "var(--acp-text)";
+        if (status === "error") {
+            bubble.style.borderColor = "#fecdd3";
+            bubble.style.background = "#fff1f2";
+            bubble.style.color = "#9f1239";
+        }
+        if (role === "assistant") {
+            renderMarkdown(bubble, content);
+        } else {
+            const cleanedText = String(content || "").trim();
+            if (cleanedText) {
+                const textEl = document.createElement("div");
+                textEl.className = "whitespace-pre-wrap";
+                textEl.textContent = cleanedText;
+                bubble.appendChild(textEl);
+            }
+            appendUserImagesToBubble(bubble, imageUrls);
+            if (!cleanedText && !imageUrls.length) {
+                bubble.textContent = "(empty message)";
+            }
+        }
+
+        inner.appendChild(bubble);
+
+        if (role === "assistant") {
+            const toolbar = document.createElement("div");
+            toolbar.className = "acp-msg-toolbar";
+            toolbar.setAttribute("role", "toolbar");
+
+            const copyBtn = document.createElement("button");
+            copyBtn.type = "button";
+            copyBtn.className = "acp-icon-btn";
+            copyBtn.title = "Copy message";
+            copyBtn.setAttribute("aria-label", "Copy message");
+            copyBtn.innerHTML = svgIconClipboard();
+            copyBtn.addEventListener("click", async () => {
+                try {
+                    await navigator.clipboard.writeText(content);
+                    setStatus("Copied to clipboard");
+                } catch {
+                    setStatus("Copy failed — try selecting text manually", true);
+                }
+            });
+            toolbar.appendChild(copyBtn);
+
+            if (id && state.currentThread) {
+                const forkBtn = document.createElement("button");
+                forkBtn.type = "button";
+                forkBtn.className = "acp-icon-btn";
+                forkBtn.title = "Fork thread from here (new runtime thread; first send includes transcript once)";
+                forkBtn.setAttribute("aria-label", "Fork thread from here");
+                forkBtn.innerHTML = svgIconFork();
+                forkBtn.addEventListener("click", () => openForkModal(Number(id)));
+                toolbar.appendChild(forkBtn);
+            }
+
+            inner.appendChild(toolbar);
+        }
+        row.appendChild(inner);
+        wrap.appendChild(row);
+        return wrap;
+    }
+
+    function appendBubbleWithActions(message, { scroll = true } = {}) {
+        const wrap = buildMessageBubbleWrap(message);
+        chatFeed.appendChild(wrap);
+        if (scroll) scrollChatToBottom();
+        return wrap;
+    }
+
+    const ACP_QUERY_MAX = 9800;
+
+    function buildForkAugmentedQuery(priorMessages, rawUserQuery) {
+        const lines = [];
+        for (const m of priorMessages || []) {
+            const r = (m.role || "").toLowerCase();
+            const c = (m.content || "").trim();
+            if (!c) continue;
+            if (r === "system") {
+                lines.push(`[SYSTEM]\n${c}`);
+            } else {
+                lines.push(`${r.toUpperCase()}\n${c}`);
+            }
+        }
+        const header = (
+            "The following is prior conversation from a forked branch. Treat it as context, "
+            + "then answer the new user message at the end.\n\n"
+        );
+        const body = lines.join("\n\n---\n\n");
+        const tail = `\n\n---\n\n## New user message\n\n${rawUserQuery}`;
+        let out = header + body + tail;
+        if (out.length > ACP_QUERY_MAX) {
+            const budget = Math.max(500, ACP_QUERY_MAX - header.length - tail.length - 80);
+            const trimmed = body.slice(0, budget) + "\n\n[... transcript truncated for API length ...]";
+            out = header + trimmed + tail;
+        }
+        return out;
+    }
+
+    function openForkModal(messageId) {
+        if (state.busy || !state.currentThread) return;
+        state.pendingForkMessageId = messageId;
+        forkModal.classList.remove("hidden");
+        forkModal.setAttribute("aria-hidden", "false");
+        document.body.style.overflow = "hidden";
+        forkModalConfirm.focus();
+    }
+
+    function closeForkModal() {
+        forkModal.classList.add("hidden");
+        forkModal.setAttribute("aria-hidden", "true");
+        state.pendingForkMessageId = null;
+        document.body.style.overflow = "";
+    }
+
+    async function runForkApi(messageId) {
+        if (!state.currentThread || messageId == null) return;
+        setBusy(true);
+        setStatus("Forking...");
+        try {
+            const data = await apiFetch(`/agent-chat-pro/api/threads/${state.currentThread.id}/fork`, {
+                method: "POST",
+                body: JSON.stringify({ up_to_message_id: messageId }),
+            });
+            await loadThread(data.thread.id);
+            setStatus("Fork created — next message bootstraps context for the model once");
+        } catch (error) {
+            setStatus(error.message || "Fork failed", true);
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    forkModalCancel.addEventListener("click", () => closeForkModal());
+    forkModalBackdrop.addEventListener("click", () => closeForkModal());
+    forkModalConfirm.addEventListener("click", () => {
+        const id = state.pendingForkMessageId;
+        if (id == null) return;
+        closeForkModal();
+        void runForkApi(id);
+    });
+    document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape" || forkModal.classList.contains("hidden")) return;
+        event.preventDefault();
+        closeForkModal();
+    });
+
+    async function reloadCurrentThreadMessages() {
+        if (!state.currentThread) return;
+        const prev = state.loadedMessages?.length || 0;
+        const tail = Math.min(200, Math.max(20, prev + 8));
+        const data = await apiFetch(`/agent-chat-pro/api/threads/${state.currentThread.id}?limit=${tail}`);
+        state.currentThread = data.thread;
+        state.loadedMessages = data.messages || [];
+        applyPaginationFromResponse(data);
+        clearChat();
+        for (const m of state.loadedMessages) {
+            appendBubbleWithActions(m, { scroll: false });
+        }
+        ensureLoadOlderBar();
+        updateActiveHeader();
+        scrollChatToBottom();
+    }

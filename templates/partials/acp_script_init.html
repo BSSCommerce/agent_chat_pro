@@ -1,0 +1,183 @@
+    async function bootstrap() {
+        applyTheme(state.preference.theme || "light");
+        if (state.preference.default_agent_alias) {
+            agentSelect.value = state.preference.default_agent_alias;
+        }
+        updateActiveHeader();
+        try {
+            const data = await apiFetch("/agent-chat-pro/api/bootstrap");
+            const incoming = data.viewer;
+            const prevId = state.viewer && state.viewer.id ? String(state.viewer.id) : "";
+            if (incoming && incoming.id && prevId && String(incoming.id) !== prevId) {
+                resetWorkspaceAfterAuthChange();
+            }
+            if (incoming && incoming.id) {
+                state.viewer = incoming;
+            }
+            state.agents = data.agents || state.agents;
+            state.preference = data.preference || state.preference;
+            state.threads = data.threads || [];
+            if (state.preference.default_agent_alias) {
+                agentSelect.value = state.preference.default_agent_alias;
+            }
+            applyTheme(state.preference.theme || "light");
+            renderThreadList();
+            updateActiveHeader();
+            updateViewerScopeLabel();
+            setStatus("Ready");
+        } catch (error) {
+            setStatus(error.message || "Failed to load workspace", true);
+            renderThreadList();
+            updateViewerScopeLabel();
+        }
+    }
+
+    agentSelect.addEventListener("change", async () => {
+        const agent = selectedAgent();
+        updateActiveHeader();
+        if (agent) {
+            await savePreference({ default_agent_alias: agent.alias });
+        }
+    });
+
+    themeToggle.addEventListener("click", async () => {
+        const nextTheme = state.preference.theme === "dark" ? "light" : "dark";
+        applyTheme(nextTheme);
+        await savePreference({ theme: nextTheme });
+    });
+
+    fullscreenToggle?.addEventListener("click", () => {
+        void toggleFullscreen();
+    });
+
+    document.addEventListener("fullscreenchange", () => {
+        updateFullscreenUi(isAppInFullscreen());
+    });
+
+    threadSearch.addEventListener("input", () => scheduleThreadSearch());
+
+    newThreadBtn.addEventListener("click", () => {
+        if (state.busy) return;
+        state.currentThread = null;
+        state.loadedMessages = [];
+        clearChat();
+        hideApprovalPanel();
+        updateActiveHeader();
+        renderThreadList();
+        messageInput.focus();
+        setStatus("New conversation ready");
+    });
+
+    renameThreadBtn.addEventListener("click", async () => {
+        if (!state.currentThread || state.busy) return;
+        const nextTitle = window.prompt("Thread title", state.currentThread.title || "New chat");
+        if (nextTitle === null) return;
+        const title = nextTitle.trim();
+        if (!title) {
+            setStatus("Title cannot be empty", true);
+            return;
+        }
+        try {
+            const data = await apiFetch(`/agent-chat-pro/api/threads/${state.currentThread.id}`, {
+                method: "PATCH",
+                body: JSON.stringify({ title }),
+            });
+            state.currentThread = data.thread;
+            await refreshThreads();
+            updateActiveHeader();
+            setStatus("Thread renamed");
+        } catch (error) {
+            setStatus(error.message || "Failed to rename thread", true);
+        }
+    });
+
+    deleteThreadBtn.addEventListener("click", async () => {
+        if (!state.currentThread || state.busy) return;
+        const confirmed = window.confirm("Delete this saved thread? This hides it from your history.");
+        if (!confirmed) return;
+        try {
+            await apiFetch(`/agent-chat-pro/api/threads/${state.currentThread.id}`, { method: "DELETE" });
+            state.currentThread = null;
+            clearChat();
+            hideApprovalPanel();
+            await refreshThreads();
+            updateActiveHeader();
+            setStatus("Thread deleted");
+        } catch (error) {
+            setStatus(error.message || "Failed to delete thread", true);
+        }
+    });
+
+    composer.addEventListener("submit", (event) => {
+        event.preventDefault();
+        if (!state.busy) {
+            void sendMessage();
+        }
+    });
+
+    messageInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            if (!state.busy) {
+                void sendMessage();
+            }
+        }
+    });
+
+    composerMenuBtn?.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (state.busy) return;
+        toggleComposerMenu();
+    });
+
+    menuUploadImageBtn?.addEventListener("click", () => {
+        if (state.busy) return;
+        closeComposerMenu();
+        imageInput?.click();
+    });
+
+    document.addEventListener("click", (event) => {
+        if (!isComposerMenuOpen()) return;
+        const target = event.target;
+        if (composerMenu?.contains(target) || composerMenuBtn?.contains(target)) return;
+        closeComposerMenu();
+    });
+
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && isComposerMenuOpen()) {
+            closeComposerMenu();
+        }
+    });
+
+    composer?.addEventListener("contextmenu", (event) => {
+        if (state.busy) return;
+        const box = event.target.closest?.(".acp-composer-box");
+        if (!box) return;
+        event.preventDefault();
+        setComposerMenuOpen(true);
+    });
+
+    imageInput?.addEventListener("change", () => {
+        void addImagesFromFiles(imageInput.files);
+        imageInput.value = "";
+    });
+
+    messageInput.addEventListener("paste", (event) => {
+        if (state.busy) return;
+        const items = event.clipboardData?.items;
+        if (!items?.length) return;
+        const imageFiles = [];
+        for (const item of items) {
+            if (item.kind === "file" && String(item.type || "").startsWith("image/")) {
+                const file = item.getAsFile();
+                if (file) imageFiles.push(file);
+            }
+        }
+        if (!imageFiles.length) return;
+        event.preventDefault();
+        void addImagesFromFiles(imageFiles);
+    });
+
+    updateViewerScopeLabel();
+    updateFullscreenUi(false);
+    void bootstrap();

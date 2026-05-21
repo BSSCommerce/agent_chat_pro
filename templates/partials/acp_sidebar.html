@@ -1,0 +1,35 @@
+<aside class="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border shadow-sm"
+       style="background: var(--acp-panel); border-color: var(--acp-border);">
+    <div class="shrink-0 border-b p-4" style="border-color: var(--acp-border);">
+        <div class="flex items-center justify-between gap-2">
+            <div>
+                <h2 class="text-sm font-semibold uppercase tracking-wide">Threads</h2>
+                <p id="acp-viewer-scope" class="mt-0.5 text-[11px] leading-snug" style="color: var(--acp-muted);"></p>
+                <p id="acp-thread-count" class="mt-1 text-xs" style="color: var(--acp-muted);">Loading...</p>
+            </div>
+            <button id="acp-new-thread"
+                    type="button"
+                    class="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white shadow-sm transition hover:opacity-90"
+                    style="background: var(--acp-accent);"
+                    title="New thread"
+                    aria-label="New thread">
+                <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+            </button>
+        </div>
+        <label class="mt-4 block">
+            <span class="sr-only">Search threads</span>
+            <input id="acp-thread-search"
+                   type="search"
+                   placeholder="Search conversation..."
+                   class="w-full rounded-xl border px-3 py-2 text-sm outline-none transition focus:ring-4"
+                   style="border-color: var(--acp-border); background: var(--acp-panel-soft); color: var(--acp-text); --tw-ring-color: color-mix(in srgb, var(--acp-accent) 25%, transparent);">
+        </label>
+    </div>
+    <div id="acp-thread-list" class="acp-scrollbar min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+        <div class="rounded-xl border border-dashed p-4 text-sm" style="border-color: var(--acp-border); color: var(--acp-muted);">
+            Your saved threads will appear here.
+        </div>
+    </div>
+</aside>

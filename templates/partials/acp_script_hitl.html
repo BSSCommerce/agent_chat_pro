@@ -1,0 +1,182 @@
+    function hideApprovalPanel() {
+        pendingInterrupts = [];
+        approvalPanel.classList.add("hidden");
+        approvalPanel.innerHTML = "";
+        setBusy(state.busy);
+    }
+
+    function getActionRequestsFromInterrupts(interrupts) {
+        const out = [];
+        for (const interrupt of interrupts || []) {
+            for (const request of interrupt?.value?.action_requests || []) {
+                out.push(request);
+            }
+        }
+        return out;
+    }
+
+    async function sendAgentResume(resumePayload) {
+        const thread = state.currentThread;
+        const agent = selectedAgent();
+        if (!thread?.external_thread_id) {
+            throw new Error("Missing runtime thread id for this chat.");
+        }
+        if (!agent?.alias) {
+            throw new Error("Select an agent before approving tools.");
+        }
+        const response = await fetch("/api/agent/resume", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                agent_alias: agent.alias,
+                thread_id: thread.external_thread_id.trim(),
+                resume: resumePayload,
+            }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+            throw new Error(data.detail || `Resume failed (${response.status})`);
+        }
+        return data;
+    }
+
+    function setHitlPanelProcessing(busy) {
+        const ids = ["acp-hitl-approve", "acp-hitl-reject", "acp-hitl-edit"];
+        for (const id of ids) {
+            const el = document.getElementById(id);
+            if (!el) continue;
+            el.disabled = Boolean(busy);
+            el.setAttribute("aria-busy", busy ? "true" : "false");
+        }
+        const progress = document.getElementById("acp-hitl-progress");
+        if (progress) {
+            progress.classList.toggle("hidden", !busy);
+        }
+    }
+
+    function renderApprovalPanel(interrupts) {
+        const actionRequests = getActionRequestsFromInterrupts(interrupts);
+        pendingInterrupts = Array.isArray(interrupts) ? interrupts : [];
+        if (!actionRequests.length) {
+            approvalPanel.classList.add("hidden");
+            approvalPanel.innerHTML = "";
+            setBusy(state.busy);
+            return;
+        }
+        approvalPanel.classList.remove("hidden");
+        approvalPanel.innerHTML = `
+            <div class="acp-scrollbar mx-auto max-w-3xl rounded-2xl border px-4 py-3 shadow-sm"
+                 style="border-color: color-mix(in srgb, var(--acp-accent) 38%, var(--acp-border)); background: var(--acp-panel-soft);">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div class="min-w-0 flex-1">
+                        <p class="text-[10px] font-semibold uppercase tracking-wider" style="color: var(--acp-muted);">Human in the loop</p>
+                        <p class="text-sm font-semibold leading-snug" style="color: var(--acp-text);">Approve or reject pending tools</p>
+                        <p class="mt-0.5 text-xs leading-relaxed" style="color: var(--acp-muted);">The run is paused until you choose an action below.</p>
+                    </div>
+                    <div class="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+                        <button type="button" id="acp-hitl-approve"
+                                class="rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-emerald-500 disabled:cursor-wait disabled:opacity-45">
+                            Approve
+                        </button>
+                        <button type="button" id="acp-hitl-reject"
+                                class="rounded-xl bg-rose-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-rose-500 disabled:cursor-wait disabled:opacity-45">
+                            Reject
+                        </button>
+                        <button type="button" id="acp-hitl-edit"
+                                class="rounded-xl border px-3 py-1.5 text-xs font-semibold transition hover:opacity-90 disabled:cursor-wait disabled:opacity-45"
+                                style="border-color: var(--acp-border); background: var(--acp-panel); color: var(--acp-text);">
+                            Edit args
+                        </button>
+                    </div>
+                </div>
+                <p id="acp-hitl-progress"
+                   class="mt-2 hidden text-xs font-medium motion-safe:animate-pulse"
+                   role="status"
+                   aria-live="polite"
+                   style="color: var(--acp-accent);">
+                    Processing your decision…
+                </p>
+                <div class="mt-3 max-h-40 space-y-2 overflow-y-auto pr-0.5 acp-scrollbar">
+                    ${actionRequests.map((req, index) => `
+                        <div class="rounded-xl border px-3 py-2" style="border-color: var(--acp-border); background: var(--acp-panel);">
+                            <p class="truncate text-xs font-semibold" style="color: var(--acp-text);">${escapeHtml(req.name || `tool_${index + 1}`)}</p>
+                            ${req.description ? `<p class="mt-0.5 text-[11px] leading-snug" style="color: var(--acp-muted);">${escapeHtml(req.description)}</p>` : ""}
+                            <pre class="acp-scrollbar mt-1.5 max-h-24 overflow-x-auto overflow-y-auto rounded-lg p-2 text-[11px] leading-relaxed"
+                                 style="background: #0b1220; color: #e2e8f0; border: 1px solid color-mix(in srgb, var(--acp-border) 60%, #1e293b);">${escapeHtml(JSON.stringify(req.args || {}, null, 2))}</pre>
+                        </div>
+                    `).join("")}
+                </div>
+            </div>
+        `;
+
+        document.getElementById("acp-hitl-approve")?.addEventListener("click", () => {
+            void resumeFromHitlPanel({ decisions: actionRequests.map(() => ({ type: "approve" })) });
+        });
+        document.getElementById("acp-hitl-reject")?.addEventListener("click", () => {
+            void resumeFromHitlPanel({
+                decisions: actionRequests.map(() => ({
+                    type: "reject",
+                    message: "Rejected in Agent Chat Pro",
+                })),
+            });
+        });
+        document.getElementById("acp-hitl-edit")?.addEventListener("click", () => {
+            const first = actionRequests[0];
+            if (!first) return;
+            const raw = window.prompt("Edit JSON args for the first tool call", JSON.stringify(first.args || {}, null, 2));
+            if (raw === null) return;
+            let editedArgs = {};
+            try {
+                editedArgs = JSON.parse(raw);
+            } catch {
+                setStatus("Invalid JSON for tool args", true);
+                return;
+            }
+            void resumeFromHitlPanel({
+                decisions: actionRequests.map((req, idx) =>
+                    idx === 0
+                        ? { type: "edit", edited_action: { name: req.name, args: editedArgs } }
+                        : { type: "approve" },
+                ),
+            });
+        });
+        setBusy(state.busy);
+    }
+
+    async function resumeFromHitlPanel(resumePayload) {
+        const thread = state.currentThread;
+        if (!thread?.id) {
+            setStatus("No active thread to resume.", true);
+            return;
+        }
+        setBusy(true);
+        setHitlPanelProcessing(true);
+        setStatus("Resuming agent…");
+        try {
+            const data = await sendAgentResume(resumePayload);
+            hideApprovalPanel();
+            if (data.status === "interrupted" && Array.isArray(data.interrupts) && data.interrupts.length) {
+                renderApprovalPanel(data.interrupts);
+                const msg = "Still waiting for approval after your decision.";
+                appendBubble("assistant", msg);
+                await saveMessage(thread.id, "assistant", msg, "interrupted");
+                await reloadCurrentThreadMessages();
+                await refreshThreads();
+                setStatus("Waiting for approval", true);
+                return;
+            }
+            const answer = (data.result || "").trim() || "(empty response)";
+            appendBubble("assistant", answer);
+            await saveMessage(thread.id, "assistant", answer, "completed");
+            await reloadCurrentThreadMessages();
+            await refreshThreads();
+            setStatus("Done");
+        } catch (error) {
+            setStatus(error.message || "Resume failed", true);
+            appendBubble("assistant", `Error: ${error.message || "Resume failed"}`, "error");
+        } finally {
+            setHitlPanelProcessing(false);
+            setBusy(false);
+        }
+    }

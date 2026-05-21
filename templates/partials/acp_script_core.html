@@ -1,0 +1,514 @@
+    const app = document.getElementById("acp-app");
+    const agentSelect = document.getElementById("acp-agent-select");
+    const themeToggle = document.getElementById("acp-theme-toggle");
+    const themeIconMoon = document.getElementById("acp-theme-icon-moon");
+    const themeIconSun = document.getElementById("acp-theme-icon-sun");
+    const fullscreenToggle = document.getElementById("acp-fullscreen-toggle");
+    const fullscreenIconEnter = document.getElementById("acp-fullscreen-icon-enter");
+    const fullscreenIconExit = document.getElementById("acp-fullscreen-icon-exit");
+    const threadList = document.getElementById("acp-thread-list");
+    const threadCount = document.getElementById("acp-thread-count");
+    const threadSearch = document.getElementById("acp-thread-search");
+    const newThreadBtn = document.getElementById("acp-new-thread");
+    const renameThreadBtn = document.getElementById("acp-rename-thread");
+    const deleteThreadBtn = document.getElementById("acp-delete-thread");
+    const activeTitle = document.getElementById("acp-active-title");
+    const activeMeta = document.getElementById("acp-active-meta");
+    const chatFeed = document.getElementById("acp-chat-feed");
+    const emptyState = document.getElementById("acp-empty-state");
+    const composer = document.getElementById("acp-composer");
+    const messageInput = document.getElementById("acp-message-input");
+    const imageInput = document.getElementById("acp-image-input");
+    const composerMenuBtn = document.getElementById("acp-composer-menu-btn");
+    const composerMenu = document.getElementById("acp-composer-menu");
+    const menuUploadImageBtn = document.getElementById("acp-menu-upload-image");
+    const composerImagePreview = document.getElementById("acp-composer-image-preview");
+    const sendButton = document.getElementById("acp-send-button");
+    const sendIcon = document.getElementById("acp-send-icon");
+    const sendSpinner = document.getElementById("acp-send-spinner");
+    const statusEl = document.getElementById("acp-status");
+    const viewerScopeEl = document.getElementById("acp-viewer-scope");
+    const approvalPanel = document.getElementById("acp-approval-panel");
+    const forkModal = document.getElementById("acp-fork-modal");
+    const forkModalBackdrop = document.getElementById("acp-fork-modal-backdrop");
+    const forkModalCancel = document.getElementById("acp-fork-modal-cancel");
+    const forkModalConfirm = document.getElementById("acp-fork-modal-confirm");
+
+    const state = {
+        agents: JSON.parse(app.dataset.agents || "[]"),
+        preference: JSON.parse(app.dataset.preference || "{}"),
+        viewer: (() => {
+            try {
+                return JSON.parse(app.dataset.viewer || "{}");
+            } catch {
+                return {};
+            }
+        })(),
+        threads: [],
+        currentThread: null,
+        loadedMessages: [],
+        busy: false,
+        loadingOlder: false,
+        messagesHasOlder: false,
+        messagesOldestId: null,
+        messagesTotal: 0,
+        pendingForkMessageId: null,
+    };
+
+    let threadSearchTimer = null;
+    /** Last interrupt payload from stream or resume (for debugging / future use). */
+    let pendingInterrupts = [];
+    const ACP_MAX_IMAGES = 5;
+    let selectedImageUrls = [];
+
+    if (window.marked) {
+        marked.setOptions({
+            gfm: true,
+            breaks: true,
+            mangle: false,
+            headerIds: false,
+        });
+    }
+
+    /**
+     * Parse API / DB datetimes as an absolute instant.
+     * Naive ISO strings (common with SQLite) are treated as UTC so "time ago" and local labels match the server clock.
+     */
+    function parseServerInstant(iso) {
+        if (iso == null || iso === "") return null;
+        let s = String(iso).trim();
+        if (!s) return null;
+        const hasZone = /[zZ]$|[+-]\d{2}:\d{2}$|[+-]\d{2}\d{2}$/.test(s);
+        if (!hasZone) {
+            if (s.includes(" ") && !s.includes("T")) s = s.replace(" ", "T");
+            s += "Z";
+        }
+        const d = new Date(s);
+        return Number.isNaN(d.getTime()) ? null : d;
+    }
+
+    /** Sidebar + UI: compact label in the user's local timezone. */
+    function formatThreadSidebarLocal(iso) {
+        const d = parseServerInstant(iso);
+        if (!d) return "—";
+        const now = new Date();
+        const startOf = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+        const d0 = startOf(d);
+        const n0 = startOf(now);
+        const dayMs = 86400000;
+        const timePart = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(d);
+        if (d0 === n0) return timePart;
+        if (d0 === n0 - dayMs) return `Yesterday · ${timePart}`;
+        if (now.getTime() - d.getTime() < 6 * dayMs) {
+            const wk = new Intl.DateTimeFormat(undefined, { weekday: "short" }).format(d);
+            return `${wk} · ${timePart}`;
+        }
+        if (d.getFullYear() === now.getFullYear()) {
+            return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(d);
+        }
+        return new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(d);
+    }
+
+    function formatFullLocalTimestamp(iso) {
+        const d = parseServerInstant(iso);
+        if (!d) return "";
+        return new Intl.DateTimeFormat(undefined, {
+            dateStyle: "full",
+            timeStyle: "medium",
+        }).format(d);
+    }
+
+    function escapeHtml(raw) {
+        return String(raw || "")
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#39;");
+    }
+
+    function normalizeMessageImageUrls(raw) {
+        const list = Array.isArray(raw) ? raw : [];
+        return list.map((item) => String(item || "").trim()).filter((item) => item.length > 0).slice(0, ACP_MAX_IMAGES);
+    }
+
+    function readFileAsDataUrl(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ""));
+            reader.onerror = () => reject(new Error(`Cannot read file: ${file.name || "unknown"}`));
+            reader.readAsDataURL(file);
+        });
+    }
+
+    function renderComposerImagePreview() {
+        if (!composerImagePreview) return;
+        composerImagePreview.innerHTML = "";
+        if (!selectedImageUrls.length) {
+            composerImagePreview.classList.add("hidden");
+            return;
+        }
+        composerImagePreview.classList.remove("hidden");
+        selectedImageUrls.forEach((url, index) => {
+            const chip = document.createElement("div");
+            chip.className = "acp-image-chip";
+
+            const img = document.createElement("img");
+            img.src = url;
+            img.alt = `Attached image ${index + 1}`;
+            chip.appendChild(img);
+
+            const removeBtn = document.createElement("button");
+            removeBtn.type = "button";
+            removeBtn.className = "acp-image-chip-remove";
+            removeBtn.setAttribute("aria-label", `Remove image ${index + 1}`);
+            removeBtn.textContent = "×";
+            removeBtn.addEventListener("click", () => {
+                selectedImageUrls = selectedImageUrls.filter((_, i) => i !== index);
+                renderComposerImagePreview();
+                setStatus(selectedImageUrls.length ? `${selectedImageUrls.length} image(s) attached` : "Idle");
+            });
+            chip.appendChild(removeBtn);
+            composerImagePreview.appendChild(chip);
+        });
+    }
+
+    function clearComposerImages() {
+        selectedImageUrls = [];
+        if (imageInput) imageInput.value = "";
+        renderComposerImagePreview();
+    }
+
+    async function addImagesFromFiles(files) {
+        const list = Array.from(files || []);
+        if (!list.length) return;
+        const slots = ACP_MAX_IMAGES - selectedImageUrls.length;
+        if (slots <= 0) {
+            setStatus(`Maximum ${ACP_MAX_IMAGES} images per message.`, true);
+            return;
+        }
+        const encoded = [];
+        for (const file of list.slice(0, slots)) {
+            const mime = String(file.type || "").toLowerCase();
+            if (!["image/jpeg", "image/jpg", "image/png"].includes(mime)) {
+                continue;
+            }
+            try {
+                encoded.push(await readFileAsDataUrl(file));
+            } catch (error) {
+                setStatus(error.message || "Failed to read image", true);
+            }
+        }
+        if (!encoded.length) {
+            setStatus("Use JPEG or PNG images only.", true);
+            return;
+        }
+        selectedImageUrls = [...selectedImageUrls, ...encoded].slice(0, ACP_MAX_IMAGES);
+        renderComposerImagePreview();
+        setStatus(`${selectedImageUrls.length} image(s) ready to send`);
+    }
+
+    function appendUserImagesToBubble(bubble, imageUrls) {
+        const images = normalizeMessageImageUrls(imageUrls);
+        if (!images.length) return;
+        const gallery = document.createElement("div");
+        gallery.className = "acp-user-gallery";
+        for (const url of images) {
+            const link = document.createElement("a");
+            link.href = url;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            const img = document.createElement("img");
+            img.src = url;
+            img.alt = "Attached image";
+            link.appendChild(img);
+            gallery.appendChild(link);
+        }
+        bubble.appendChild(gallery);
+    }
+
+    function preprocessAssistantMarkdown(raw) {
+        const text = raw == null ? "" : String(raw);
+        const t = text.trim();
+        if (!t || /^\s*```/.test(text)) return text;
+        const looksJson = (t.startsWith("{") && t.endsWith("}")) || (t.startsWith("[") && t.endsWith("]"));
+        if (!looksJson) return text;
+        try {
+            const parsed = JSON.parse(t);
+            const pretty = JSON.stringify(parsed, null, 2);
+            return "```json\n" + pretty + "\n```";
+        } catch {
+            return text;
+        }
+    }
+
+    function renderMarkdown(target, markdownText) {
+        const md = preprocessAssistantMarkdown(markdownText || "");
+        try {
+            if (window.marked && window.DOMPurify) {
+                const dirty = marked.parse(md);
+                target.innerHTML = DOMPurify.sanitize(dirty, {
+                    ADD_ATTR: ["class", "id", "target", "rel"],
+                    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
+                });
+                if (window.hljs) {
+                    target.querySelectorAll("pre code").forEach((block) => {
+                        try {
+                            hljs.highlightElement(block);
+                        } catch {
+                            /* keep plain code */
+                        }
+                    });
+                }
+                target.querySelectorAll("a[href]").forEach((a) => {
+                    if (a.getAttribute("target")) return;
+                    a.setAttribute("target", "_blank");
+                    a.setAttribute("rel", "noopener noreferrer");
+                });
+                return;
+            }
+        } catch {
+            /* Plain-text fallback */
+        }
+        target.innerHTML = escapeHtml(md).replaceAll("\n", "<br>");
+    }
+
+    function setStatus(text, isError = false) {
+        statusEl.textContent = text;
+        statusEl.style.color = isError ? "#e11d48" : "var(--acp-muted)";
+    }
+
+    function hitlBlocksComposer() {
+        return approvalPanel && !approvalPanel.classList.contains("hidden");
+    }
+
+    function isComposerMenuOpen() {
+        return composerMenu && !composerMenu.classList.contains("hidden");
+    }
+
+    function setComposerMenuOpen(open) {
+        if (!composerMenu || !composerMenuBtn) return;
+        const show = Boolean(open);
+        composerMenu.classList.toggle("hidden", !show);
+        composerMenuBtn.setAttribute("aria-expanded", show ? "true" : "false");
+    }
+
+    function closeComposerMenu() {
+        setComposerMenuOpen(false);
+    }
+
+    function toggleComposerMenu() {
+        setComposerMenuOpen(!isComposerMenuOpen());
+    }
+
+    function setBusy(busy) {
+        state.busy = busy;
+        const lock = busy || hitlBlocksComposer();
+        sendButton.disabled = lock;
+        if (composerMenuBtn) composerMenuBtn.disabled = lock;
+        if (menuUploadImageBtn) menuUploadImageBtn.disabled = lock;
+        if (lock) closeComposerMenu();
+        agentSelect.disabled = lock;
+        messageInput.readOnly = lock;
+        sendIcon.classList.toggle("hidden", busy);
+        sendSpinner.classList.toggle("hidden", !busy);
+    }
+
+    function selectedAgent() {
+        const alias = (agentSelect.value || "").trim();
+        return state.agents.find((agent) => agent.alias === alias) || null;
+    }
+
+    function applyTheme(theme) {
+        const normalized = theme === "dark" ? "dark" : "light";
+        state.preference.theme = normalized;
+        app.classList.toggle("acp-dark", normalized === "dark");
+        // Light UI → show moon (switch to dark). Dark UI → show sun (switch to light).
+        const isDark = normalized === "dark";
+        themeIconMoon.classList.toggle("hidden", isDark);
+        themeIconSun.classList.toggle("hidden", !isDark);
+        themeToggle.setAttribute("aria-label", isDark ? "Switch to light mode" : "Switch to dark mode");
+        themeToggle.setAttribute("title", isDark ? "Light mode" : "Dark mode");
+    }
+
+    function updateViewerScopeLabel() {
+        if (!viewerScopeEl) return;
+        const v = state.viewer || {};
+        const label = (v.display_name || v.username || "").trim();
+        if (label) {
+            viewerScopeEl.textContent = `Signed in as ${label} — only your threads are listed here.`;
+        } else {
+            viewerScopeEl.textContent = "Only conversations for your signed-in account are shown.";
+        }
+    }
+
+    function isAppInFullscreen() {
+        const fullscreenEl = document.fullscreenElement;
+        return fullscreenEl === app || (fullscreenEl && app.contains(fullscreenEl));
+    }
+
+    function updateFullscreenUi(isFullscreen) {
+        if (!fullscreenToggle) return;
+        fullscreenIconEnter?.classList.toggle("hidden", isFullscreen);
+        fullscreenIconExit?.classList.toggle("hidden", !isFullscreen);
+        fullscreenToggle.classList.toggle("acp-fullscreen-toggle-active", isFullscreen);
+        fullscreenToggle.setAttribute("aria-label", isFullscreen ? "Exit full screen" : "Enter full screen");
+        fullscreenToggle.setAttribute("title", isFullscreen ? "Exit full screen" : "Full screen");
+        app.classList.toggle("acp-fullscreen-active", isFullscreen);
+    }
+
+    async function toggleFullscreen() {
+        if (!document.fullscreenEnabled) {
+            setStatus("Full screen is not supported in this browser.", true);
+            return;
+        }
+        try {
+            if (isAppInFullscreen()) {
+                await document.exitFullscreen();
+                updateFullscreenUi(false);
+            } else {
+                await app.requestFullscreen();
+                updateFullscreenUi(true);
+            }
+        } catch (error) {
+            setStatus(error?.message || "Unable to toggle full screen.", true);
+        }
+    }
+
+    function resetWorkspaceAfterAuthChange() {
+        state.currentThread = null;
+        state.loadedMessages = [];
+        state.threads = [];
+        clearChat();
+        hideApprovalPanel();
+        updateActiveHeader();
+        renderThreadList();
+    }
+
+    async function apiFetch(url, options = {}) {
+        const response = await fetch(url, {
+            credentials: "same-origin",
+            ...options,
+            headers: {
+                "Content-Type": "application/json",
+                ...(options.headers || {}),
+            },
+        });
+        const data = await response.json().catch(() => ({}));
+        if (response.status === 401) {
+            throw new Error(data.detail || "Session expired — please sign in again.");
+        }
+        if (!response.ok) {
+            throw new Error(data.detail || `Request failed: ${response.status}`);
+        }
+        return data;
+    }
+
+    async function savePreference(patch) {
+        try {
+            const data = await apiFetch("/agent-chat-pro/api/preferences", {
+                method: "POST",
+                body: JSON.stringify(patch),
+            });
+            state.preference = data.preference || state.preference;
+        } catch (error) {
+            setStatus(error.message || "Failed to save preference", true);
+        }
+    }
+
+    function renderThreadList() {
+        const threads = state.threads || [];
+        const query = (threadSearch.value || "").trim();
+        threadCount.textContent = `${threads.length} saved thread${threads.length === 1 ? "" : "s"}`;
+        if (!threads.length) {
+            threadList.innerHTML = `
+                <div class="rounded-xl border border-dashed p-4 text-sm" style="border-color: var(--acp-border); color: var(--acp-muted);">
+                    ${query ? "No matching threads in search." : "No saved threads yet."}
+                </div>
+            `;
+            return;
+        }
+        threadList.innerHTML = threads.map((thread) => {
+            const active = state.currentThread && state.currentThread.id === thread.id;
+            const last = thread.last_message?.content || "No messages yet";
+            const whenLabel = formatThreadSidebarLocal(thread.updated_at);
+            const whenTitle = formatFullLocalTimestamp(thread.updated_at) || "Updated time unknown";
+            return `
+                <button type="button"
+                        data-thread-id="${thread.id}"
+                        class="w-full rounded-xl border p-3 text-left transition hover:opacity-90 ${active ? "ring-2" : ""}"
+                        style="border-color: ${active ? "var(--acp-accent)" : "var(--acp-border)"}; background: ${active ? "var(--acp-accent-soft)" : "var(--acp-panel-soft)"}; --tw-ring-color: color-mix(in srgb, var(--acp-accent) 40%, transparent);">
+                    <div class="flex items-start justify-between gap-2">
+                        <p class="min-w-0 truncate text-sm font-semibold" style="color: var(--acp-text);">${escapeHtml(thread.title || "New chat")}</p>
+                        <span class="shrink-0 text-right text-[11px] tabular-nums leading-tight" style="color: var(--acp-muted);" title="${escapeHtml(whenTitle)}">${escapeHtml(whenLabel)}</span>
+                    </div>
+                    <p class="mt-1 truncate text-xs" style="color: var(--acp-muted);">${escapeHtml(thread.agent?.name || thread.agent?.alias || "Unknown agent")}</p>
+                    <p class="mt-2 line-clamp-2 text-xs" style="color: var(--acp-muted);">${escapeHtml(last)}</p>
+                </button>
+            `;
+        }).join("");
+        threadList.querySelectorAll("[data-thread-id]").forEach((button) => {
+            button.addEventListener("click", () => loadThread(Number(button.dataset.threadId)));
+        });
+    }
+
+    async function fetchThreadsList() {
+        const q = (threadSearch.value || "").trim();
+        const suffix = q ? `?q=${encodeURIComponent(q)}` : "";
+        const data = await apiFetch(`/agent-chat-pro/api/threads${suffix}`);
+        state.threads = data.threads || [];
+        renderThreadList();
+    }
+
+    function scheduleThreadSearch() {
+        if (threadSearchTimer) {
+            clearTimeout(threadSearchTimer);
+        }
+        threadSearchTimer = setTimeout(() => {
+            threadSearchTimer = null;
+            void fetchThreadsList().catch((error) => {
+                setStatus(error.message || "Thread search failed", true);
+            });
+        }, 320);
+    }
+
+    function clearChat() {
+        chatFeed.querySelectorAll("[data-message-bubble]").forEach((node) => node.remove());
+        document.getElementById("acp-load-older")?.remove();
+        emptyState.classList.remove("hidden");
+    }
+
+    function applyPaginationFromResponse(data) {
+        const p = data.pagination || {};
+        state.messagesHasOlder = Boolean(p.has_older);
+        state.messagesOldestId = p.oldest_loaded_id != null ? Number(p.oldest_loaded_id) : null;
+        state.messagesTotal = typeof p.total === "number" ? p.total : (data.messages || []).length;
+    }
+
+    function ensureLoadOlderBar() {
+        let bar = document.getElementById("acp-load-older");
+        if (!state.messagesHasOlder) {
+            if (bar) bar.remove();
+            return;
+        }
+        if (!bar) {
+            bar = document.createElement("div");
+            bar.id = "acp-load-older";
+            bar.className = "flex justify-center py-2";
+            chatFeed.insertBefore(bar, chatFeed.firstChild);
+        }
+        const disabled = state.loadingOlder || state.busy;
+        bar.innerHTML = `
+            <button type="button"
+                    id="acp-load-older-btn"
+                    class="rounded-full border px-4 py-1.5 text-xs font-semibold transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                    style="border-color: var(--acp-border); background: var(--acp-panel-soft); color: var(--acp-text);"
+                    ${disabled ? "disabled" : ""}>
+                Load older messages
+            </button>
+        `;
+        const btn = document.getElementById("acp-load-older-btn");
+        if (btn && !disabled) {
+            btn.addEventListener("click", () => void loadOlderMessages());
+        }
+    }

@@ -1,0 +1,161 @@
+    async function sendStream(thread, queryText, imageUrls = []) {
+        const response = await fetch("/api/agent/query/stream", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                query: queryText,
+                agent_alias: thread.agent.alias,
+                thread_id: thread.external_thread_id,
+                image_urls: normalizeMessageImageUrls(imageUrls),
+            }),
+        });
+        if (!response.ok || !response.body) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.detail || `Agent request failed: ${response.status}`);
+        }
+
+        const assistantBubble = appendThinkingAssistantBubble();
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let finalAnswer = "";
+        let interrupted = false;
+
+        function applyEvent(eventName, dataText) {
+            const eventType = (eventName || "").trim() || "message";
+            if (!dataText && eventType !== "done") return;
+            let payload = {};
+            try {
+                payload = JSON.parse(dataText);
+            } catch {
+                payload = {};
+            }
+            if (eventType === "error") {
+                throw new Error(payload.detail || "Stream error");
+            }
+            if (eventType === "start" && payload.thread_id && thread?.external_thread_id) {
+                const sid = String(payload.thread_id).trim();
+                if (sid && sid !== String(thread.external_thread_id).trim()) {
+                    setStatus("Stream thread id mismatch — check agent runtime.", true);
+                }
+            }
+            if ((eventType === "step" || eventType === "answer" || eventType === "message") && payload.message) {
+                finalAnswer = payload.message;
+                finalizeStreamingAssistantBubble(assistantBubble);
+                renderMarkdown(assistantBubble, finalAnswer);
+                setStatus("Receiving response...");
+                scrollChatToBottom();
+            }
+            if (eventType === "interrupt" && Array.isArray(payload.interrupts) && payload.interrupts.length) {
+                interrupted = true;
+                finalAnswer = "Run paused and requires approval.";
+                finalizeStreamingAssistantBubble(assistantBubble);
+                renderMarkdown(assistantBubble, finalAnswer);
+                renderApprovalPanel(payload.interrupts);
+                setStatus("Waiting for approval", true);
+            }
+            if (eventType === "done") {
+                if (payload.status === "interrupted") {
+                    interrupted = true;
+                    return;
+                }
+                hideApprovalPanel();
+            }
+        }
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+            let boundary = buffer.indexOf("\n\n");
+            while (boundary !== -1) {
+                const rawEvent = buffer.slice(0, boundary);
+                buffer = buffer.slice(boundary + 2);
+                let eventName = "";
+                const dataLines = [];
+                for (const rawLine of rawEvent.split("\n")) {
+                    const line = rawLine.trimEnd();
+                    if (line.startsWith("event:")) {
+                        eventName = line.slice(6).trim();
+                    } else if (line.startsWith("data:")) {
+                        dataLines.push(line.slice(5).trimStart());
+                    }
+                }
+                applyEvent(eventName, dataLines.join("\n"));
+                boundary = buffer.indexOf("\n\n");
+            }
+        }
+
+        if (!finalAnswer) {
+            finalAnswer = "(stream finished without visible answer)";
+            finalizeStreamingAssistantBubble(assistantBubble);
+            renderMarkdown(assistantBubble, finalAnswer);
+        }
+        return { answer: finalAnswer, status: interrupted ? "interrupted" : "completed" };
+    }
+
+    async function sendMessage() {
+        const rawUserQuery = (messageInput.value || "").trim();
+        const outgoingImages = [...selectedImageUrls];
+        if (!rawUserQuery && !outgoingImages.length) {
+            setStatus("Enter a message or attach at least one image.", true);
+            messageInput.focus();
+            return;
+        }
+        const agent = selectedAgent();
+        if (!agent) {
+            setStatus("Please select an agent.", true);
+            agentSelect.focus();
+            return;
+        }
+
+        const priorSnapshot = [...(state.loadedMessages || [])];
+        let agentQueryText = rawUserQuery;
+        if (state.currentThread?.fork_bootstrap_pending && priorSnapshot.length) {
+            agentQueryText = buildForkAugmentedQuery(priorSnapshot, rawUserQuery);
+        }
+
+        setBusy(true);
+        setStatus("Preparing thread...");
+        try {
+            const thread = await createThreadIfNeeded();
+            appendBubbleWithActions({
+                id: null,
+                role: "user",
+                content: rawUserQuery,
+                image_urls: outgoingImages,
+                status: "completed",
+            });
+            messageInput.value = "";
+            clearComposerImages();
+            await saveMessage(thread.id, "user", rawUserQuery, "completed", outgoingImages);
+            await reloadCurrentThreadMessages();
+            setStatus("Streaming response...");
+            const result = await sendStream(state.currentThread, agentQueryText, outgoingImages);
+            await saveMessage(state.currentThread.id, "assistant", result.answer, result.status);
+            if (state.currentThread?.fork_bootstrap_pending) {
+                await apiFetch(`/agent-chat-pro/api/threads/${state.currentThread.id}`, {
+                    method: "PATCH",
+                    body: JSON.stringify({ fork_bootstrap_pending: false }),
+                });
+                state.currentThread = { ...state.currentThread, fork_bootstrap_pending: false };
+            }
+            await reloadCurrentThreadMessages();
+            await refreshThreads();
+            setStatus(result.status === "interrupted" ? "Run paused for approval" : "Done");
+        } catch (error) {
+            setStatus(error.message || "Unexpected error", true);
+            appendBubble("assistant", `Error: ${error.message || "Unexpected error"}`, "error");
+            if (state.currentThread) {
+                try {
+                    await saveMessage(state.currentThread.id, "assistant", `Error: ${error.message || "Unexpected error"}`, "error");
+                    await reloadCurrentThreadMessages();
+                } catch {
+                    // The visible error is enough if persistence also fails.
+                }
+            }
+        } finally {
+            setBusy(false);
+        }
+    }

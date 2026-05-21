@@ -1,0 +1,135 @@
+    function updateActiveHeader() {
+        const agent = selectedAgent();
+        renameThreadBtn.disabled = !state.currentThread;
+        deleteThreadBtn.disabled = !state.currentThread;
+        if (!state.currentThread) {
+            activeTitle.textContent = "New conversation";
+            activeMeta.textContent = agent
+                ? `Ready to chat with ${agent.name} (${agent.alias}).`
+                : "Select an agent and send a message to start.";
+            return;
+        }
+        activeTitle.textContent = state.currentThread.title || "New chat";
+        let meta = `${state.currentThread.agent?.name || "Agent"} · thread ${state.currentThread.external_thread_id}`;
+        if (state.currentThread.fork_bootstrap_pending) {
+            meta += " · next send includes forked context once";
+        }
+        activeMeta.textContent = meta;
+    }
+
+    async function refreshThreads() {
+        const q = (threadSearch.value || "").trim();
+        const suffix = q ? `?q=${encodeURIComponent(q)}` : "";
+        const data = await apiFetch(`/agent-chat-pro/api/threads${suffix}`);
+        state.threads = data.threads || [];
+        renderThreadList();
+    }
+
+    async function loadOlderMessages() {
+        if (!state.currentThread || state.messagesOldestId == null || !state.messagesHasOlder || state.loadingOlder) {
+            return;
+        }
+        state.loadingOlder = true;
+        ensureLoadOlderBar();
+        try {
+            const data = await apiFetch(
+                `/agent-chat-pro/api/threads/${state.currentThread.id}?limit=10&before_id=${state.messagesOldestId}`,
+            );
+            const older = data.messages || [];
+            applyPaginationFromResponse(data);
+            if (!older.length) {
+                ensureLoadOlderBar();
+                return;
+            }
+            state.loadedMessages = [...older, ...state.loadedMessages];
+            const anchor = chatFeed.querySelector("[data-message-bubble]");
+            const prevHeight = chatFeed.scrollHeight;
+            const prevTop = chatFeed.scrollTop;
+            for (const m of older) {
+                const wrap = buildMessageBubbleWrap(m);
+                chatFeed.insertBefore(wrap, anchor);
+            }
+            const delta = chatFeed.scrollHeight - prevHeight;
+            chatFeed.scrollTop = prevTop + delta;
+            ensureLoadOlderBar();
+        } catch (error) {
+            setStatus(error.message || "Failed to load older messages", true);
+        } finally {
+            state.loadingOlder = false;
+            ensureLoadOlderBar();
+        }
+    }
+
+    async function loadThread(threadId) {
+        setStatus("Loading thread...");
+        try {
+            const data = await apiFetch(`/agent-chat-pro/api/threads/${threadId}?limit=20`);
+            state.currentThread = data.thread;
+            state.loadedMessages = data.messages || [];
+            applyPaginationFromResponse(data);
+            if (data.thread?.agent?.alias) {
+                agentSelect.value = data.thread.agent.alias;
+            }
+            clearChat();
+            for (const message of state.loadedMessages) {
+                appendBubbleWithActions(message, { scroll: false });
+            }
+            ensureLoadOlderBar();
+            updateActiveHeader();
+            renderThreadList();
+            setStatus("Thread loaded");
+            scrollChatToBottom();
+        } catch (error) {
+            const msg = (error.message || "").toLowerCase();
+            const notFound = msg.includes("not found") || msg.includes("404");
+            setStatus(error.message || "Failed to load thread", true);
+            if (notFound) {
+                state.currentThread = null;
+                state.loadedMessages = [];
+                clearChat();
+                hideApprovalPanel();
+                try {
+                    await fetchThreadsList();
+                } catch {
+                    /* sidebar refresh best-effort */
+                }
+                updateActiveHeader();
+                renderThreadList();
+            }
+        }
+    }
+
+    async function createThreadIfNeeded() {
+        if (state.currentThread) {
+            return state.currentThread;
+        }
+        const agent = selectedAgent();
+        if (!agent) {
+            throw new Error("Please select an agent first.");
+        }
+        const data = await apiFetch("/agent-chat-pro/api/threads", {
+            method: "POST",
+            body: JSON.stringify({ agent_alias: agent.alias }),
+        });
+        state.currentThread = data.thread;
+        state.loadedMessages = [];
+        await refreshThreads();
+        updateActiveHeader();
+        return state.currentThread;
+    }
+
+    async function saveMessage(threadId, role, content, status = "completed", imageUrls = []) {
+        const data = await apiFetch(`/agent-chat-pro/api/threads/${threadId}/messages`, {
+            method: "POST",
+            body: JSON.stringify({
+                role,
+                content: content || "",
+                image_urls: normalizeMessageImageUrls(imageUrls),
+                status,
+            }),
+        });
+        state.currentThread = data.thread || state.currentThread;
+        await refreshThreads();
+        updateActiveHeader();
+        return data.message;
+    }

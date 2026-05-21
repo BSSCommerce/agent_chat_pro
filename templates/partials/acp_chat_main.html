@@ -1,0 +1,125 @@
+<main class="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border shadow-sm"
+      style="background: var(--acp-panel); border-color: var(--acp-border);">
+                <div class="flex shrink-0 flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between"
+                     style="border-color: var(--acp-border);">
+                    <div class="min-w-0">
+                        <h2 id="acp-active-title" class="truncate text-lg font-semibold">New conversation</h2>
+                        <p id="acp-active-meta" class="mt-1 text-xs" style="color: var(--acp-muted);">Select an agent and send a message to start.</p>
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        <button id="acp-rename-thread"
+                                type="button"
+                                class="acp-icon-btn inline-flex h-10 w-10 items-center justify-center rounded-xl border transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                                style="border-color: var(--acp-border); background: var(--acp-panel-soft); color: var(--acp-text);"
+                                title="Rename thread"
+                                aria-label="Rename thread">
+                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                      d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                            </svg>
+                        </button>
+                        <button id="acp-delete-thread"
+                                type="button"
+                                class="acp-icon-btn inline-flex h-10 w-10 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                title="Delete thread"
+                                aria-label="Delete thread">
+                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="acp-chat-feed"
+                     class="acp-scrollbar min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-auto p-4 md:p-6"
+                     style="background: linear-gradient(180deg, var(--acp-panel-soft), var(--acp-panel));">
+                    <div id="acp-empty-state"
+                         class="mx-auto mt-20 max-w-md rounded-2xl border border-dashed p-6 text-center"
+                         style="border-color: var(--acp-border); background: var(--acp-panel);">
+                        <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl text-white"
+                             style="background: var(--acp-accent);">
+                            <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 4v-4z" />
+                            </svg>
+                        </div>
+                        <h3 class="mt-4 text-base font-semibold">Start a focused agent conversation</h3>
+                        <p class="mt-2 text-sm" style="color: var(--acp-muted);">
+                            Choose an agent once. Agent Chat Pro saves that choice, keeps thread history, and lets you resume later.
+                        </p>
+                    </div>
+                </div>
+
+                <div id="acp-approval-panel" class="hidden shrink-0 border-t p-4" style="border-color: var(--acp-border);"></div>
+
+                <form id="acp-composer" class="shrink-0 border-t p-4" style="border-color: var(--acp-border);">
+                    <div id="acp-composer-image-preview" class="acp-image-preview mb-3 hidden" aria-live="polite"></div>
+                    <input id="acp-image-input"
+                           type="file"
+                           accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                           multiple
+                           class="sr-only"
+                           tabindex="-1"
+                           aria-hidden="true">
+                    <div class="acp-composer-box">
+                        <label class="block min-w-0">
+                            <span class="sr-only">Message</span>
+                            <textarea id="acp-message-input"
+                                      rows="3"
+                                      placeholder="Message your agent…"
+                                      class="acp-composer-input acp-scrollbar"></textarea>
+                        </label>
+                        <div class="acp-composer-toolbar">
+                            <div class="acp-composer-menu-wrap">
+                                <button type="button"
+                                        id="acp-composer-menu-btn"
+                                        class="acp-composer-menu-btn"
+                                        aria-haspopup="menu"
+                                        aria-expanded="false"
+                                        aria-controls="acp-composer-menu"
+                                        title="More options"
+                                        aria-label="More options">
+                                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                                    </svg>
+                                </button>
+                                <div id="acp-composer-menu"
+                                     class="acp-composer-menu hidden"
+                                     role="menu"
+                                     aria-label="Composer actions">
+                                    <button type="button"
+                                            id="acp-menu-upload-image"
+                                            class="acp-composer-menu-item"
+                                            role="menuitem">
+                                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
+                                                  d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                        </svg>
+                                        <span>Upload image</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <button id="acp-send-button"
+                                    type="submit"
+                                    class="acp-composer-send"
+                                    aria-label="Send message">
+                                <span id="acp-send-icon" aria-hidden="true">
+                                    <svg class="h-4 w-4 translate-x-px" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" />
+                                    </svg>
+                                </span>
+                                <span id="acp-send-spinner" class="hidden" aria-hidden="true">
+                                    <svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                </span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="mt-2 flex flex-col gap-1 text-xs sm:flex-row sm:items-center sm:justify-between" style="color: var(--acp-muted);">
+                        <span>+ for attachments · Paste images · Enter to send · Shift+Enter new line</span>
+                        <span id="acp-status">Idle</span>
+                    </div>
+                </form>
+</main>

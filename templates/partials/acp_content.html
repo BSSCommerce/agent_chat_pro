@@ -1,0 +1,17 @@
+<div id="acp-app"
+     class="acp-shell min-h-[calc(100vh-3rem)] rounded-3xl border shadow-sleek-lg transition-colors"
+     style="background: var(--acp-bg); border-color: var(--acp-border); color: var(--acp-text);"
+     data-agents='{{ agent_options | tojson }}'
+     data-preference='{{ preference | tojson }}'
+     data-viewer='{{ viewer | tojson }}'>
+    <div class="flex flex-col gap-4 p-4 lg:p-5">
+        {% include "partials/acp_header.html" %}
+
+        <div id="acp-main-layout" class="grid min-h-0 grid-cols-1 gap-4 h-[max(380px,min(720px,calc(100vh-10rem)))] max-h-[calc(100vh-8rem)] xl:grid-cols-[320px_minmax(0,1fr)]">
+            {% include "partials/acp_sidebar.html" %}
+            {% include "partials/acp_chat_main.html" %}
+        </div>
+    </div>
+
+    {% include "partials/acp_fork_modal.html" %}
+</div>
