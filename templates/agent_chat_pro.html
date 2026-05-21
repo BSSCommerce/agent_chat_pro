@@ -158,6 +158,170 @@
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     }
     .acp-prose img { max-width: 100%; height: auto; border-radius: 0.5rem; }
+    .acp-image-preview {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+    .acp-image-chip {
+        position: relative;
+        width: 4.5rem;
+        height: 4.5rem;
+        flex-shrink: 0;
+    }
+    .acp-image-chip img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: 0.75rem;
+        border: 1px solid var(--acp-border);
+    }
+    .acp-image-chip-remove {
+        position: absolute;
+        top: -0.35rem;
+        right: -0.35rem;
+        display: inline-flex;
+        height: 1.25rem;
+        width: 1.25rem;
+        align-items: center;
+        justify-content: center;
+        border-radius: 9999px;
+        border: 1px solid var(--acp-border);
+        background: var(--acp-panel);
+        color: var(--acp-muted);
+        font-size: 0.75rem;
+        line-height: 1;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+    }
+    .acp-image-chip-remove:hover { color: var(--acp-text); }
+    .acp-user-gallery {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+    }
+    @media (min-width: 480px) {
+        .acp-user-gallery { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+    .acp-user-gallery img {
+        width: 100%;
+        height: 6rem;
+        object-fit: cover;
+        border-radius: 0.65rem;
+        border: 1px solid color-mix(in srgb, #ffffff 25%, transparent);
+    }
+    .acp-composer-box {
+        border-radius: 1.25rem;
+        border: 1px solid var(--acp-border);
+        background: var(--acp-panel-soft);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .acp-composer-box:focus-within {
+        border-color: color-mix(in srgb, var(--acp-accent) 45%, var(--acp-border));
+        box-shadow: 0 0 0 4px color-mix(in srgb, var(--acp-accent) 18%, transparent);
+    }
+    .acp-composer-input {
+        display: block;
+        width: 100%;
+        min-height: 5.5rem;
+        max-height: 12rem;
+        resize: none;
+        border: 0;
+        background: transparent;
+        padding: 0.85rem 1rem 0.35rem;
+        font-size: 0.875rem;
+        line-height: 1.5;
+        color: var(--acp-text);
+        outline: none;
+    }
+    .acp-composer-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem;
+        padding: 0.35rem 0.5rem 0.5rem;
+    }
+    .acp-composer-menu-wrap {
+        position: relative;
+    }
+    .acp-composer-menu-btn {
+        display: inline-flex;
+        height: 2.25rem;
+        width: 2.25rem;
+        align-items: center;
+        justify-content: center;
+        border-radius: 0.75rem;
+        border: 1px solid transparent;
+        background: transparent;
+        color: var(--acp-muted);
+        transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+    }
+    .acp-composer-menu-btn:hover:not(:disabled) {
+        background: var(--acp-panel);
+        color: var(--acp-text);
+        border-color: var(--acp-border);
+    }
+    .acp-composer-menu-btn[aria-expanded="true"] {
+        background: var(--acp-accent-soft);
+        color: var(--acp-accent);
+        border-color: color-mix(in srgb, var(--acp-accent) 35%, var(--acp-border));
+    }
+    .acp-composer-menu {
+        position: absolute;
+        bottom: calc(100% + 0.4rem);
+        left: 0;
+        z-index: 40;
+        min-width: 11.5rem;
+        padding: 0.35rem;
+        border-radius: 0.85rem;
+        border: 1px solid var(--acp-border);
+        background: var(--acp-panel);
+        box-shadow: 0 10px 28px rgba(15, 23, 42, 0.14);
+    }
+    .acp-composer-menu.hidden { display: none; }
+    .acp-composer-menu-item {
+        display: flex;
+        width: 100%;
+        align-items: center;
+        gap: 0.65rem;
+        border-radius: 0.6rem;
+        border: 0;
+        background: transparent;
+        padding: 0.55rem 0.65rem;
+        font-size: 0.8125rem;
+        font-weight: 500;
+        color: var(--acp-text);
+        text-align: left;
+        cursor: pointer;
+        transition: background 0.12s ease;
+    }
+    .acp-composer-menu-item:hover:not(:disabled) {
+        background: var(--acp-panel-soft);
+    }
+    .acp-composer-menu-item:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+    }
+    .acp-composer-menu-item svg {
+        flex-shrink: 0;
+        color: var(--acp-muted);
+    }
+    .acp-composer-send {
+        display: inline-flex;
+        height: 2.25rem;
+        width: 2.25rem;
+        align-items: center;
+        justify-content: center;
+        border-radius: 0.75rem;
+        border: 0;
+        color: #fff;
+        background: var(--acp-accent);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+        transition: opacity 0.15s ease, transform 0.12s ease;
+    }
+    .acp-composer-send:hover:not(:disabled) { opacity: 0.92; transform: scale(1.03); }
+    .acp-composer-send:disabled { opacity: 0.45; cursor: not-allowed; transform: none; }
     .acp-theme-toggle {
         display: inline-flex;
         align-items: center;
@@ -502,35 +666,72 @@
                 <div id="acp-approval-panel" class="hidden shrink-0 border-t p-4" style="border-color: var(--acp-border);"></div>
 
                 <form id="acp-composer" class="shrink-0 border-t p-4" style="border-color: var(--acp-border);">
-                    <div class="flex items-end gap-3">
-                        <label class="min-w-0 flex-1">
+                    <div id="acp-composer-image-preview" class="acp-image-preview mb-3 hidden" aria-live="polite"></div>
+                    <input id="acp-image-input"
+                           type="file"
+                           accept=".jpg,.jpeg,.png,image/jpeg,image/png"
+                           multiple
+                           class="sr-only"
+                           tabindex="-1"
+                           aria-hidden="true">
+                    <div class="acp-composer-box">
+                        <label class="block min-w-0">
                             <span class="sr-only">Message</span>
                             <textarea id="acp-message-input"
                                       rows="3"
-                                      placeholder="Ask your selected agent..."
-                                      class="acp-scrollbar max-h-48 min-h-24 w-full resize-y rounded-2xl border px-4 py-3 text-sm outline-none transition focus:ring-4"
-                                      style="border-color: var(--acp-border); background: var(--acp-panel-soft); color: var(--acp-text); --tw-ring-color: color-mix(in srgb, var(--acp-accent) 25%, transparent);"></textarea>
+                                      placeholder="Message your agent…"
+                                      class="acp-composer-input acp-scrollbar"></textarea>
                         </label>
-                        <button id="acp-send-button"
-                                type="submit"
-                                class="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-white shadow-sm transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                                style="background: var(--acp-accent);"
-                                aria-label="Send message">
-                            <span id="acp-send-icon" aria-hidden="true">
-                                <svg class="h-5 w-5 translate-x-px" fill="currentColor" viewBox="0 0 24 24">
-                                    <path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" />
-                                </svg>
-                            </span>
-                            <span id="acp-send-spinner" class="hidden" aria-hidden="true">
-                                <svg class="h-5 w-5 animate-spin" fill="none" viewBox="0 0 24 24">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                            </span>
-                        </button>
+                        <div class="acp-composer-toolbar">
+                            <div class="acp-composer-menu-wrap">
+                                <button type="button"
+                                        id="acp-composer-menu-btn"
+                                        class="acp-composer-menu-btn"
+                                        aria-haspopup="menu"
+                                        aria-expanded="false"
+                                        aria-controls="acp-composer-menu"
+                                        title="More options"
+                                        aria-label="More options">
+                                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                                    </svg>
+                                </button>
+                                <div id="acp-composer-menu"
+                                     class="acp-composer-menu hidden"
+                                     role="menu"
+                                     aria-label="Composer actions">
+                                    <button type="button"
+                                            id="acp-menu-upload-image"
+                                            class="acp-composer-menu-item"
+                                            role="menuitem">
+                                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
+                                                  d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                        </svg>
+                                        <span>Upload image</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <button id="acp-send-button"
+                                    type="submit"
+                                    class="acp-composer-send"
+                                    aria-label="Send message">
+                                <span id="acp-send-icon" aria-hidden="true">
+                                    <svg class="h-4 w-4 translate-x-px" fill="currentColor" viewBox="0 0 24 24">
+                                        <path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z" />
+                                    </svg>
+                                </span>
+                                <span id="acp-send-spinner" class="hidden" aria-hidden="true">
+                                    <svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                </span>
+                            </button>
+                        </div>
                     </div>
                     <div class="mt-2 flex flex-col gap-1 text-xs sm:flex-row sm:items-center sm:justify-between" style="color: var(--acp-muted);">
-                        <span>Enter to send · Shift+Enter for a new line</span>
+                        <span>+ for attachments · Paste images · Enter to send · Shift+Enter new line</span>
                         <span id="acp-status">Idle</span>
                     </div>
                 </form>
@@ -601,6 +802,11 @@
     const emptyState = document.getElementById("acp-empty-state");
     const composer = document.getElementById("acp-composer");
     const messageInput = document.getElementById("acp-message-input");
+    const imageInput = document.getElementById("acp-image-input");
+    const composerMenuBtn = document.getElementById("acp-composer-menu-btn");
+    const composerMenu = document.getElementById("acp-composer-menu");
+    const menuUploadImageBtn = document.getElementById("acp-menu-upload-image");
+    const composerImagePreview = document.getElementById("acp-composer-image-preview");
     const sendButton = document.getElementById("acp-send-button");
     const sendIcon = document.getElementById("acp-send-icon");
     const sendSpinner = document.getElementById("acp-send-spinner");
@@ -636,6 +842,8 @@
     let threadSearchTimer = null;
     /** Last interrupt payload from stream or resume (for debugging / future use). */
     let pendingInterrupts = [];
+    const ACP_MAX_IMAGES = 5;
+    let selectedImageUrls = [];
 
     if (window.marked) {
         marked.setOptions({
@@ -703,6 +911,106 @@
             .replaceAll("'", "&#39;");
     }
 
+    function normalizeMessageImageUrls(raw) {
+        const list = Array.isArray(raw) ? raw : [];
+        return list.map((item) => String(item || "").trim()).filter((item) => item.length > 0).slice(0, ACP_MAX_IMAGES);
+    }
+
+    function readFileAsDataUrl(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ""));
+            reader.onerror = () => reject(new Error(`Cannot read file: ${file.name || "unknown"}`));
+            reader.readAsDataURL(file);
+        });
+    }
+
+    function renderComposerImagePreview() {
+        if (!composerImagePreview) return;
+        composerImagePreview.innerHTML = "";
+        if (!selectedImageUrls.length) {
+            composerImagePreview.classList.add("hidden");
+            return;
+        }
+        composerImagePreview.classList.remove("hidden");
+        selectedImageUrls.forEach((url, index) => {
+            const chip = document.createElement("div");
+            chip.className = "acp-image-chip";
+
+            const img = document.createElement("img");
+            img.src = url;
+            img.alt = `Attached image ${index + 1}`;
+            chip.appendChild(img);
+
+            const removeBtn = document.createElement("button");
+            removeBtn.type = "button";
+            removeBtn.className = "acp-image-chip-remove";
+            removeBtn.setAttribute("aria-label", `Remove image ${index + 1}`);
+            removeBtn.textContent = "×";
+            removeBtn.addEventListener("click", () => {
+                selectedImageUrls = selectedImageUrls.filter((_, i) => i !== index);
+                renderComposerImagePreview();
+                setStatus(selectedImageUrls.length ? `${selectedImageUrls.length} image(s) attached` : "Idle");
+            });
+            chip.appendChild(removeBtn);
+            composerImagePreview.appendChild(chip);
+        });
+    }
+
+    function clearComposerImages() {
+        selectedImageUrls = [];
+        if (imageInput) imageInput.value = "";
+        renderComposerImagePreview();
+    }
+
+    async function addImagesFromFiles(files) {
+        const list = Array.from(files || []);
+        if (!list.length) return;
+        const slots = ACP_MAX_IMAGES - selectedImageUrls.length;
+        if (slots <= 0) {
+            setStatus(`Maximum ${ACP_MAX_IMAGES} images per message.`, true);
+            return;
+        }
+        const encoded = [];
+        for (const file of list.slice(0, slots)) {
+            const mime = String(file.type || "").toLowerCase();
+            if (!["image/jpeg", "image/jpg", "image/png"].includes(mime)) {
+                continue;
+            }
+            try {
+                encoded.push(await readFileAsDataUrl(file));
+            } catch (error) {
+                setStatus(error.message || "Failed to read image", true);
+            }
+        }
+        if (!encoded.length) {
+            setStatus("Use JPEG or PNG images only.", true);
+            return;
+        }
+        selectedImageUrls = [...selectedImageUrls, ...encoded].slice(0, ACP_MAX_IMAGES);
+        renderComposerImagePreview();
+        setStatus(`${selectedImageUrls.length} image(s) ready to send`);
+    }
+
+    function appendUserImagesToBubble(bubble, imageUrls) {
+        const images = normalizeMessageImageUrls(imageUrls);
+        if (!images.length) return;
+        const gallery = document.createElement("div");
+        gallery.className = "acp-user-gallery";
+        for (const url of images) {
+            const link = document.createElement("a");
+            link.href = url;
+            link.target = "_blank";
+            link.rel = "noopener noreferrer";
+            const img = document.createElement("img");
+            img.src = url;
+            img.alt = "Attached image";
+            link.appendChild(img);
+            gallery.appendChild(link);
+        }
+        bubble.appendChild(gallery);
+    }
+
     function preprocessAssistantMarkdown(raw) {
         const text = raw == null ? "" : String(raw);
         const t = text.trim();
@@ -758,10 +1066,32 @@
         return approvalPanel && !approvalPanel.classList.contains("hidden");
     }
 
+    function isComposerMenuOpen() {
+        return composerMenu && !composerMenu.classList.contains("hidden");
+    }
+
+    function setComposerMenuOpen(open) {
+        if (!composerMenu || !composerMenuBtn) return;
+        const show = Boolean(open);
+        composerMenu.classList.toggle("hidden", !show);
+        composerMenuBtn.setAttribute("aria-expanded", show ? "true" : "false");
+    }
+
+    function closeComposerMenu() {
+        setComposerMenuOpen(false);
+    }
+
+    function toggleComposerMenu() {
+        setComposerMenuOpen(!isComposerMenuOpen());
+    }
+
     function setBusy(busy) {
         state.busy = busy;
         const lock = busy || hitlBlocksComposer();
         sendButton.disabled = lock;
+        if (composerMenuBtn) composerMenuBtn.disabled = lock;
+        if (menuUploadImageBtn) menuUploadImageBtn.disabled = lock;
+        if (lock) closeComposerMenu();
         agentSelect.disabled = lock;
         messageInput.readOnly = lock;
         sendIcon.classList.toggle("hidden", busy);
@@ -1070,6 +1400,7 @@
     function buildMessageBubbleWrap(message) {
         const role = (message.role || "").toLowerCase();
         const content = message.content || "";
+        const imageUrls = normalizeMessageImageUrls(message.image_urls);
         const status = message.status || "completed";
         const id = message.id;
 
@@ -1103,7 +1434,17 @@
         if (role === "assistant") {
             renderMarkdown(bubble, content);
         } else {
-            bubble.textContent = content;
+            const cleanedText = String(content || "").trim();
+            if (cleanedText) {
+                const textEl = document.createElement("div");
+                textEl.className = "whitespace-pre-wrap";
+                textEl.textContent = cleanedText;
+                bubble.appendChild(textEl);
+            }
+            appendUserImagesToBubble(bubble, imageUrls);
+            if (!cleanedText && !imageUrls.length) {
+                bubble.textContent = "(empty message)";
+            }
         }
 
         inner.appendChild(bubble);
@@ -1368,10 +1709,15 @@
         return state.currentThread;
     }
 
-    async function saveMessage(threadId, role, content, status = "completed") {
+    async function saveMessage(threadId, role, content, status = "completed", imageUrls = []) {
         const data = await apiFetch(`/agent-chat-pro/api/threads/${threadId}/messages`, {
             method: "POST",
-            body: JSON.stringify({ role, content, status }),
+            body: JSON.stringify({
+                role,
+                content: content || "",
+                image_urls: normalizeMessageImageUrls(imageUrls),
+                status,
+            }),
         });
         state.currentThread = data.thread || state.currentThread;
         await refreshThreads();
@@ -1562,7 +1908,7 @@
         }
     }
 
-    async function sendStream(thread, queryText) {
+    async function sendStream(thread, queryText, imageUrls = []) {
         const response = await fetch("/api/agent/query/stream", {
             method: "POST",
             credentials: "same-origin",
@@ -1571,6 +1917,7 @@
                 query: queryText,
                 agent_alias: thread.agent.alias,
                 thread_id: thread.external_thread_id,
+                image_urls: normalizeMessageImageUrls(imageUrls),
             }),
         });
         if (!response.ok || !response.body) {
@@ -1660,8 +2007,9 @@
 
     async function sendMessage() {
         const rawUserQuery = (messageInput.value || "").trim();
-        if (!rawUserQuery) {
-            setStatus("Message cannot be empty.", true);
+        const outgoingImages = [...selectedImageUrls];
+        if (!rawUserQuery && !outgoingImages.length) {
+            setStatus("Enter a message or attach at least one image.", true);
             messageInput.focus();
             return;
         }
@@ -1682,12 +2030,19 @@
         setStatus("Preparing thread...");
         try {
             const thread = await createThreadIfNeeded();
-            appendBubbleWithActions({ id: null, role: "user", content: rawUserQuery, status: "completed" });
+            appendBubbleWithActions({
+                id: null,
+                role: "user",
+                content: rawUserQuery,
+                image_urls: outgoingImages,
+                status: "completed",
+            });
             messageInput.value = "";
-            await saveMessage(thread.id, "user", rawUserQuery);
+            clearComposerImages();
+            await saveMessage(thread.id, "user", rawUserQuery, "completed", outgoingImages);
             await reloadCurrentThreadMessages();
             setStatus("Streaming response...");
-            const result = await sendStream(state.currentThread, agentQueryText);
+            const result = await sendStream(state.currentThread, agentQueryText, outgoingImages);
             await saveMessage(state.currentThread.id, "assistant", result.answer, result.status);
             if (state.currentThread?.fork_bootstrap_pending) {
                 await apiFetch(`/agent-chat-pro/api/threads/${state.currentThread.id}`, {
@@ -1839,6 +2194,60 @@
                 void sendMessage();
             }
         }
+    });
+
+    composerMenuBtn?.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (state.busy) return;
+        toggleComposerMenu();
+    });
+
+    menuUploadImageBtn?.addEventListener("click", () => {
+        if (state.busy) return;
+        closeComposerMenu();
+        imageInput?.click();
+    });
+
+    document.addEventListener("click", (event) => {
+        if (!isComposerMenuOpen()) return;
+        const target = event.target;
+        if (composerMenu?.contains(target) || composerMenuBtn?.contains(target)) return;
+        closeComposerMenu();
+    });
+
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && isComposerMenuOpen()) {
+            closeComposerMenu();
+        }
+    });
+
+    composer?.addEventListener("contextmenu", (event) => {
+        if (state.busy) return;
+        const box = event.target.closest?.(".acp-composer-box");
+        if (!box) return;
+        event.preventDefault();
+        setComposerMenuOpen(true);
+    });
+
+    imageInput?.addEventListener("change", () => {
+        void addImagesFromFiles(imageInput.files);
+        imageInput.value = "";
+    });
+
+    messageInput.addEventListener("paste", (event) => {
+        if (state.busy) return;
+        const items = event.clipboardData?.items;
+        if (!items?.length) return;
+        const imageFiles = [];
+        for (const item of items) {
+            if (item.kind === "file" && String(item.type || "").startsWith("image/")) {
+                const file = item.getAsFile();
+                if (file) imageFiles.push(file);
+            }
+        }
+        if (!imageFiles.length) return;
+        event.preventDefault();
+        void addImagesFromFiles(imageFiles);
     });
 
     updateViewerScopeLabel();

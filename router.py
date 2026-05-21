@@ -7,10 +7,13 @@ threads never appear in list/bootstrap APIs and return 404 from detail routes.
 
 from __future__ import annotations
 
+import json
+import re
 import uuid
 from collections.abc import Generator
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -31,6 +34,31 @@ from core.plugin_sdk.registry import get_registry
 from core.template_env import get_templates
 
 router = APIRouter(prefix="/agent-chat-pro", tags=["agent-chat-pro"])
+
+
+def _ensure_agent_chat_pro_image_urls_column(db: Session) -> None:
+    """SQLite / Postgres: add image_urls_json when upgrading an existing DB."""
+    bind = db.get_bind()
+    insp = inspect(bind)
+    try:
+        cols = {c["name"] for c in insp.get_columns("plugin_agent_chat_pro_messages")}
+    except Exception:
+        return
+    if "image_urls_json" in cols:
+        return
+    dialect = bind.dialect.name
+    if dialect == "sqlite":
+        db.execute(
+            text("ALTER TABLE plugin_agent_chat_pro_messages ADD COLUMN image_urls_json TEXT")
+        )
+    else:
+        db.execute(
+            text(
+                "ALTER TABLE plugin_agent_chat_pro_messages "
+                "ADD COLUMN IF NOT EXISTS image_urls_json TEXT"
+            )
+        )
+    db.commit()
 
 
 def _ensure_agent_chat_pro_fork_column(db: Session) -> None:
@@ -66,6 +94,7 @@ def get_db_acp() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         _ensure_agent_chat_pro_fork_column(db)
+        _ensure_agent_chat_pro_image_urls_column(db)
         yield db
     finally:
         db.close()
@@ -93,8 +122,58 @@ class ForkThreadPayload(BaseModel):
 
 class MessageCreatePayload(BaseModel):
     role: str = Field(min_length=1, max_length=32)
-    content: str = Field(min_length=1, max_length=100000)
+    content: str = Field(default="", max_length=100000)
+    image_urls: list[str] = Field(default_factory=list, max_length=5)
     status: str = Field(default="completed", max_length=32)
+
+
+def _is_supported_image_url(image_url: str) -> bool:
+    data_url_pattern = r"^data:image\/(?:jpeg|jpg|png);base64,[A-Za-z0-9+/=\s]+$"
+    if re.match(data_url_pattern, image_url, flags=re.IGNORECASE):
+        return True
+    parsed = urlsplit(image_url)
+    if parsed.scheme != "https" or not parsed.netloc:
+        return False
+    path = (parsed.path or "").lower()
+    return path.endswith(".jpg") or path.endswith(".jpeg") or path.endswith(".png")
+
+
+def _normalize_image_urls(raw_urls: list[str] | None) -> list[str]:
+    out: list[str] = []
+    for raw in raw_urls or []:
+        url = (raw or "").strip()
+        if not url or url in out:
+            continue
+        if not _is_supported_image_url(url):
+            raise ValueError(
+                "Invalid image_urls. Use https://...jpg|jpeg|png "
+                "or data:image/jpeg|jpg|png;base64,..."
+            )
+        out.append(url)
+        if len(out) >= 5:
+            break
+    return out
+
+
+def _image_urls_from_json(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, list):
+        return []
+    urls: list[str] = []
+    for item in data:
+        url = (str(item) if item is not None else "").strip()
+        if url:
+            urls.append(url)
+    return urls[:5]
+
+
+def _image_urls_to_json(urls: list[str]) -> str | None:
+    return json.dumps(urls) if urls else None
 
 
 def _auth_or_redirect(db: Session, request: Request):
@@ -163,6 +242,7 @@ def _message_payload(message: AgentChatProMessage) -> dict[str, Any]:
         "id": message.id,
         "role": message.role,
         "content": message.content,
+        "image_urls": _image_urls_from_json(getattr(message, "image_urls_json", None)),
         "status": message.status,
         "created_at": message.created_at.isoformat() if message.created_at else None,
     }
@@ -235,10 +315,10 @@ def _viewer_payload(user: User) -> dict[str, Any]:
     }
 
 
-def _default_title_from_message(content: str) -> str:
+def _default_title_from_message(content: str, *, has_images: bool = False) -> str:
     normalized = " ".join((content or "").split())
     if not normalized:
-        return "New chat"
+        return "Image message" if has_images else "New chat"
     return normalized[:72] + ("..." if len(normalized) > 72 else "")
 
 
@@ -543,6 +623,7 @@ async def fork_thread_api(
                 thread_id=new_thread.id,
                 role=row.role,
                 content=row.content,
+                image_urls_json=getattr(row, "image_urls_json", None),
                 status=row.status,
             )
         )
@@ -633,15 +714,27 @@ async def create_message_api(
     if status not in {"completed", "error", "interrupted", "pending"}:
         return JSONResponse(status_code=400, content={"detail": "Invalid message status"})
 
+    content = (payload.content or "").strip()
+    try:
+        image_urls = _normalize_image_urls(payload.image_urls)
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+    if not content and not image_urls:
+        return JSONResponse(
+            status_code=400,
+            content={"detail": "content or image_urls is required"},
+        )
+
     message = AgentChatProMessage(
         thread_id=thread.id,
         role=role,
-        content=payload.content,
+        content=content,
+        image_urls_json=_image_urls_to_json(image_urls),
         status=status,
     )
     db.add(message)
     if role == "user" and thread.title == "New chat":
-        thread.title = _default_title_from_message(payload.content)
+        thread.title = _default_title_from_message(content, has_images=bool(image_urls))
     thread.updated_at = datetime.now(UTC)
     db.commit()
     db.refresh(thread)
