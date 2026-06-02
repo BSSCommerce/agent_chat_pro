@@ -15,12 +15,22 @@
             throw new Error(data.detail || `Agent request failed: ${response.status}`);
         }
 
-        const assistantBubble = appendThinkingAssistantBubble();
+        const turn = createStreamingTurn();
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
         let finalAnswer = "";
+        // Latest model text not yet known to be final. When a newer message or the
+        // authoritative `answer` arrives, the previous one is "working", not the answer.
+        let pendingMessage = "";
         let interrupted = false;
+
+        function flushPendingToWorking() {
+            if (pendingMessage) {
+                turn.commitMessage(pendingMessage);
+                pendingMessage = "";
+            }
+        }
 
         function applyEvent(eventName, dataText) {
             const eventType = (eventName || "").trim() || "message";
@@ -40,18 +50,31 @@
                     setStatus("Stream thread id mismatch — check agent runtime.", true);
                 }
             }
-            if ((eventType === "step" || eventType === "answer" || eventType === "message") && payload.message) {
-                finalAnswer = payload.message;
-                finalizeStreamingAssistantBubble(assistantBubble);
-                renderMarkdown(assistantBubble, finalAnswer);
+            if (eventType === "step" && payload.message) {
+                if ((payload.kind || "").trim() === "activity") {
+                    // Live ACP processing timeline → working panel (cumulative render).
+                    turn.pushActivity(payload.message);
+                } else {
+                    // Model text: hold as the candidate answer; the prior candidate is
+                    // now a superseded step and moves into the working timeline.
+                    flushPendingToWorking();
+                    pendingMessage = payload.message;
+                    turn.setAnswer(pendingMessage);
+                }
                 setStatus("Receiving response...");
-                scrollChatToBottom();
+            }
+            if (eventType === "answer" && payload.message) {
+                // Authoritative final answer — never part of "working".
+                pendingMessage = "";
+                finalAnswer = payload.message;
+                turn.setAnswer(finalAnswer);
+                setStatus("Receiving response...");
             }
             if (eventType === "interrupt" && Array.isArray(payload.interrupts) && payload.interrupts.length) {
                 interrupted = true;
+                pendingMessage = "";
                 finalAnswer = "Run paused and requires approval.";
-                finalizeStreamingAssistantBubble(assistantBubble);
-                renderMarkdown(assistantBubble, finalAnswer);
+                turn.setAnswer(finalAnswer);
                 renderApprovalPanel(payload.interrupts);
                 setStatus("Waiting for approval", true);
             }
@@ -88,11 +111,28 @@
         }
 
         if (!finalAnswer) {
-            finalAnswer = "(stream finished without visible answer)";
-            finalizeStreamingAssistantBubble(assistantBubble);
-            renderMarkdown(assistantBubble, finalAnswer);
+            // No explicit answer: fall back to the last pending message, else a notice.
+            finalAnswer = pendingMessage || "(stream finished without visible answer)";
+            turn.setAnswer(finalAnswer);
         }
-        return { answer: finalAnswer, status: interrupted ? "interrupted" : "completed" };
+        turn.finish();
+
+        // Cap the saved log well under the API limit so a very long run never blocks
+        // persistence of the assistant answer itself.
+        const ACP_ACTIVITY_LOG_MAX = 180000;
+        let activityMarkdown = turn.activityMarkdown();
+        if (activityMarkdown.length > ACP_ACTIVITY_LOG_MAX) {
+            activityMarkdown =
+                activityMarkdown.slice(0, ACP_ACTIVITY_LOG_MAX) + "\n\n…(working log truncated)";
+        }
+        const activityLog = activityMarkdown
+            ? JSON.stringify({ v: 1, duration_ms: turn.durationMs(), markdown: activityMarkdown })
+            : null;
+        return {
+            answer: finalAnswer,
+            status: interrupted ? "interrupted" : "completed",
+            activityLog,
+        };
     }
 
     async function sendMessage() {
@@ -133,7 +173,9 @@
             await reloadCurrentThreadMessages();
             setStatus("Streaming response...");
             const result = await sendStream(state.currentThread, agentQueryText, outgoingImages);
-            await saveMessage(state.currentThread.id, "assistant", result.answer, result.status);
+            await saveMessage(
+                state.currentThread.id, "assistant", result.answer, result.status, [], result.activityLog,
+            );
             if (state.currentThread?.fork_bootstrap_pending) {
                 await apiFetch(`/agent-chat-pro/api/threads/${state.currentThread.id}`, {
                     method: "PATCH",

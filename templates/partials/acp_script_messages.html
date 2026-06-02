@@ -2,6 +2,254 @@
         chatFeed.scrollTop = chatFeed.scrollHeight;
     }
 
+    // ── Working / activity panel (Claude-desktop-style processing timeline) ──
+
+    const ACP_CHEVRON_SVG =
+        `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M6 9l6 6 6-6" />
+        </svg>`;
+    const ACP_CHECK_SVG =
+        `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"
+              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+              style="width:100%;height:100%;">
+            <path d="M20 6L9 17l-5-5" />
+        </svg>`;
+
+    /** Compact "3s" / "1:05" (running) or "3s" / "1m 05s" (final) label. */
+    function formatWorkingDuration(ms, running = false) {
+        const totalSec = Math.max(0, Math.round((Number(ms) || 0) / 1000));
+        const m = Math.floor(totalSec / 60);
+        const s = totalSec % 60;
+        if (running) {
+            return m > 0 ? `${m}:${String(s).padStart(2, "0")}` : `${totalSec}s`;
+        }
+        if (totalSec < 60) return `${Math.max(1, totalSec)}s`;
+        return `${m}m ${String(s).padStart(2, "0")}s`;
+    }
+
+    /** Decode a persisted activity_log (JSON envelope, with plain-text fallback). */
+    function parseActivityLog(raw) {
+        if (raw == null) return null;
+        const text = String(raw).trim();
+        if (!text) return null;
+        if (text.startsWith("{")) {
+            try {
+                const obj = JSON.parse(text);
+                const md = String(obj.markdown || obj.md || "").trim();
+                if (md) {
+                    return { durationMs: Number(obj.duration_ms || obj.durationMs || 0) || 0, markdown: md };
+                }
+            } catch {
+                /* fall through to plain-text */
+            }
+        }
+        return { durationMs: 0, markdown: text };
+    }
+
+    /** Build the collapsible working panel shell. Shared by streaming + history. */
+    function createWorkingPanel({ running }) {
+        const el = document.createElement("div");
+        el.className = "acp-working";
+        el.dataset.running = running ? "true" : "false";
+        el.dataset.collapsed = running ? "false" : "true";
+
+        const header = document.createElement("button");
+        header.type = "button";
+        header.className = "acp-working-header";
+        header.setAttribute("aria-expanded", running ? "true" : "false");
+
+        const orb = document.createElement("span");
+        orb.className = "acp-working-orb";
+        if (!running) orb.innerHTML = ACP_CHECK_SVG;
+
+        const label = document.createElement("span");
+        label.className = "acp-working-label";
+        label.textContent = running ? "Working" : "Worked";
+
+        const time = document.createElement("span");
+        time.className = "acp-working-time";
+
+        const chevron = document.createElement("span");
+        chevron.className = "acp-working-chevron";
+        chevron.innerHTML = ACP_CHEVRON_SVG;
+
+        header.append(orb, label, time, chevron);
+
+        const body = document.createElement("div");
+        body.className = "acp-working-body acp-scrollbar";
+
+        el.append(header, body);
+
+        function setCollapsed(collapsed) {
+            el.dataset.collapsed = collapsed ? "true" : "false";
+            header.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        }
+        header.addEventListener("click", () => setCollapsed(el.dataset.collapsed !== "true"));
+
+        function appendBlock(markdownText) {
+            const block = document.createElement("div");
+            block.className = "acp-working-block";
+            const prose = document.createElement("div");
+            prose.className = "acp-prose";
+            block.appendChild(prose);
+            body.appendChild(block);
+            renderMarkdown(prose, markdownText || "");
+            return prose;
+        }
+
+        return { el, header, orb, label, time, chevron, body, setCollapsed, appendBlock };
+    }
+
+    /** Render a persisted working log (collapsed, completed) for a saved message. */
+    function buildWorkingPanelFromLog(activityLog) {
+        const parsed = parseActivityLog(activityLog);
+        if (!parsed || !parsed.markdown.trim()) return null;
+        const panel = createWorkingPanel({ running: false });
+        panel.label.textContent = parsed.durationMs
+            ? `Worked for ${formatWorkingDuration(parsed.durationMs, false)}`
+            : "Worked";
+        panel.appendBlock(parsed.markdown);
+        panel.setCollapsed(true);
+        return panel.el;
+    }
+
+    /**
+     * A live assistant turn: a working panel (hidden until the first activity / step)
+     * plus an answer bubble. The working panel streams the ordered processing timeline
+     * with a running timer, then collapses to "Worked for Xs" when finished.
+     */
+    function createStreamingTurn() {
+        emptyState.classList.add("hidden");
+
+        const wrap = document.createElement("div");
+        wrap.dataset.messageBubble = "true";
+        wrap.dataset.messageId = "";
+        wrap.className = "flex w-full flex-col items-start";
+
+        const panel = createWorkingPanel({ running: true });
+        panel.el.style.display = "none";
+        wrap.appendChild(panel.el);
+
+        const answerRow = document.createElement("div");
+        answerRow.className = "flex w-full justify-start";
+        const answerBubble = document.createElement("div");
+        answerBubble.className = "acp-thinking-bubble";
+        answerBubble.setAttribute("role", "status");
+        answerBubble.setAttribute("aria-live", "polite");
+        answerBubble.setAttribute("aria-label", "Assistant is thinking");
+        answerBubble.innerHTML = `
+            <div class="acp-thinking-inner">
+                <span class="acp-thinking-orb" aria-hidden="true"></span>
+                <span class="acp-thinking-text">Thinking</span>
+                <span class="acp-thinking-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+            </div>
+        `;
+        answerRow.appendChild(answerBubble);
+        wrap.appendChild(answerRow);
+
+        chatFeed.appendChild(wrap);
+        scrollChatToBottom();
+
+        const turn = {
+            wrap,
+            panel,
+            answerRow,
+            answerBubble,
+            _activity: null,        // singleton entry { md, prose } for the ACP render
+            _blocks: [],            // ordered { kind, md } used to rebuild the saved log
+            _startTs: performance.now(),
+            _timer: null,
+            _durationMs: 0,
+            _answerShown: false,
+            _finished: false,
+        };
+
+        turn._tick = function () {
+            this.panel.time.textContent = formatWorkingDuration(performance.now() - this._startTs, true);
+        };
+        turn._startTimer = function () {
+            if (this._timer) return;
+            this._tick();
+            this._timer = setInterval(() => this._tick(), 250);
+        };
+        turn._scrollWorking = function () {
+            if (this.panel.el.dataset.collapsed !== "true") {
+                this.panel.body.scrollTop = this.panel.body.scrollHeight;
+            }
+            scrollChatToBottom();
+        };
+        turn._revealWorking = function () {
+            if (this.panel.el.style.display === "none") {
+                this.panel.el.style.display = "";
+                // The panel's own orb + timer is the live indicator now; hide the
+                // separate "Thinking" placeholder until real answer text arrives.
+                if (!this._answerShown) this.answerRow.style.display = "none";
+            }
+            this._startTimer();
+        };
+        // The ACP activity render is cumulative — upsert one evolving block in place.
+        turn.pushActivity = function (markdownText) {
+            this._revealWorking();
+            if (!this._activity) {
+                const prose = this.panel.appendBlock(markdownText);
+                this._activity = { md: markdownText, prose };
+                this._blocks.push(this._activity);
+            } else {
+                this._activity.md = markdownText;
+                renderMarkdown(this._activity.prose, markdownText);
+            }
+            this._scrollWorking();
+        };
+        // An intermediate model message (superseded by a newer one) joins the timeline.
+        turn.commitMessage = function (markdownText) {
+            const md = (markdownText || "").trim();
+            if (!md) return;
+            this._revealWorking();
+            this.panel.appendBlock(md);
+            this._blocks.push({ md });
+            this._scrollWorking();
+        };
+        turn.setAnswer = function (markdownText) {
+            this.answerRow.style.display = "";
+            finalizeStreamingAssistantBubble(this.answerBubble);
+            renderMarkdown(this.answerBubble, markdownText || "");
+            this._answerShown = true;
+            scrollChatToBottom();
+        };
+        turn.hasWorking = function () {
+            return this._blocks.length > 0;
+        };
+        turn.activityMarkdown = function () {
+            return this._blocks.map((b) => (b.md || "").trim()).filter(Boolean).join("\n\n");
+        };
+        turn.durationMs = function () {
+            return Math.round(this._durationMs);
+        };
+        turn.finish = function () {
+            if (this._timer) {
+                clearInterval(this._timer);
+                this._timer = null;
+            }
+            if (this._finished) return;
+            this._finished = true;
+            this._durationMs = performance.now() - this._startTs;
+            this.answerRow.style.display = "";
+            if (this.hasWorking()) {
+                this.panel.el.style.display = "";
+                this.panel.el.dataset.running = "false";
+                this.panel.orb.innerHTML = ACP_CHECK_SVG;
+                this.panel.label.textContent =
+                    `Worked for ${formatWorkingDuration(this._durationMs, false)}`;
+                this.panel.time.textContent = "";
+                this.panel.setCollapsed(true);
+            } else {
+                this.panel.el.remove();
+            }
+        };
+        return turn;
+    }
+
     /** Placeholder bubble while the agent stream has not produced markdown yet. */
     function appendThinkingAssistantBubble() {
         emptyState.classList.add("hidden");
@@ -184,6 +432,13 @@
 
             inner.appendChild(toolbar);
         }
+
+        // Saved assistant turns replay their "working" timeline above the answer.
+        if (role === "assistant") {
+            const workingPanel = buildWorkingPanelFromLog(message.activity_log);
+            if (workingPanel) wrap.appendChild(workingPanel);
+        }
+
         row.appendChild(inner);
         wrap.appendChild(row);
         return wrap;

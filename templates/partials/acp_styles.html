@@ -490,5 +490,115 @@
     }
     .acp-thinking-dots span:nth-child(2) { animation-delay: 0.14s; }
     .acp-thinking-dots span:nth-child(3) { animation-delay: 0.28s; }
-</style>
+
+    /* ── Working / activity panel (Claude-desktop-style processing timeline) ── */
+    .acp-working {
+        width: 100%;
+        max-width: 86%;
+        margin-bottom: 0.45rem;
+        border-radius: 0.95rem;
+        border: 1px solid var(--acp-border);
+        background: color-mix(in srgb, var(--acp-panel-soft) 82%, var(--acp-accent-soft));
+        overflow: hidden;
+        transition: border-color 0.2s ease;
+    }
+    .acp-working[data-running="true"] {
+        border-color: color-mix(in srgb, var(--acp-accent) 38%, var(--acp-border));
+    }
+    .acp-working-header {
+        display: flex;
+        align-items: center;
+        gap: 0.55rem;
+        width: 100%;
+        padding: 0.5rem 0.8rem;
+        background: transparent;
+        border: 0;
+        cursor: pointer;
+        text-align: left;
+        color: var(--acp-muted);
+        font-size: 0.8125rem;
+        font-weight: 600;
+        transition: background 0.15s ease, color 0.15s ease;
+    }
+    .acp-working-header:hover {
+        background: color-mix(in srgb, var(--acp-accent) 9%, transparent);
+        color: var(--acp-text);
+    }
+    .acp-working-header:focus-visible {
+        outline: 2px solid var(--acp-accent);
+        outline-offset: -2px;
+    }
+    .acp-working-label {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+    .acp-working[data-running="true"] .acp-working-label {
+        background: linear-gradient(
+            100deg,
+            var(--acp-muted) 30%,
+            color-mix(in srgb, var(--acp-accent) 85%, var(--acp-text)) 50%,
+            var(--acp-muted) 70%
+        );
+        background-size: 200% auto;
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+        animation: acp-working-shimmer 2.4s linear infinite;
+    }
+    @keyframes acp-working-shimmer {
+        to { background-position: -200% center; }
+    }
+    .acp-working-time {
+        flex-shrink: 0;
+        font-variant-numeric: tabular-nums;
+        font-weight: 700;
+        font-size: 0.75rem;
+        color: var(--acp-accent);
+    }
+    .acp-working-chevron {
+        flex-shrink: 0;
+        width: 0.85rem;
+        height: 0.85rem;
+        color: var(--acp-muted);
+        transition: transform 0.2s ease;
+    }
+    .acp-working[data-collapsed="true"] .acp-working-chevron { transform: rotate(-90deg); }
+    .acp-working[data-collapsed="true"] .acp-working-body { display: none; }
+    .acp-working-body {
+        max-height: 22rem;
+        overflow-y: auto;
+        padding: 0.6rem 0.9rem 0.75rem;
+        border-top: 1px solid color-mix(in srgb, var(--acp-border) 70%, transparent);
+        font-size: 0.84rem;
+        line-height: 1.6;
+        color: var(--acp-text);
+    }
+    /* Per-step block separation inside the timeline. */
+    .acp-working-block + .acp-working-block {
+        margin-top: 0.7rem;
+        padding-top: 0.7rem;
+        border-top: 1px dashed color-mix(in srgb, var(--acp-border) 80%, transparent);
+    }
+    .acp-working-block .acp-prose { font-size: 0.84rem; }
+    /* Status orb (running) → check (done). */
+    .acp-working-orb {
+        flex-shrink: 0;
+        width: 0.6rem;
+        height: 0.6rem;
+        border-radius: 999px;
+        background: var(--acp-accent);
+        box-shadow: 0 0 0 3px color-mix(in srgb, var(--acp-accent) 22%, transparent);
+        animation: acp-thinking-orb 1.2s ease-in-out infinite;
+    }
+    .acp-working[data-running="false"] .acp-working-orb {
+        width: 0.95rem;
+        height: 0.95rem;
+        background: transparent;
+        box-shadow: none;
+        animation: none;
+        color: #10b981;
+    }
 </style>

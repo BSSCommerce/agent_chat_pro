@@ -61,6 +61,31 @@ def _ensure_agent_chat_pro_image_urls_column(db: Session) -> None:
     db.commit()
 
 
+def _ensure_agent_chat_pro_activity_log_column(db: Session) -> None:
+    """SQLite / Postgres: add activity_log when upgrading an existing DB."""
+    bind = db.get_bind()
+    insp = inspect(bind)
+    try:
+        cols = {c["name"] for c in insp.get_columns("plugin_agent_chat_pro_messages")}
+    except Exception:
+        return
+    if "activity_log" in cols:
+        return
+    dialect = bind.dialect.name
+    if dialect == "sqlite":
+        db.execute(
+            text("ALTER TABLE plugin_agent_chat_pro_messages ADD COLUMN activity_log TEXT")
+        )
+    else:
+        db.execute(
+            text(
+                "ALTER TABLE plugin_agent_chat_pro_messages "
+                "ADD COLUMN IF NOT EXISTS activity_log TEXT"
+            )
+        )
+    db.commit()
+
+
 def _ensure_agent_chat_pro_fork_column(db: Session) -> None:
     """SQLite / Postgres: add fork_bootstrap_pending when upgrading an existing DB."""
     bind = db.get_bind()
@@ -95,6 +120,7 @@ def get_db_acp() -> Generator[Session, None, None]:
     try:
         _ensure_agent_chat_pro_fork_column(db)
         _ensure_agent_chat_pro_image_urls_column(db)
+        _ensure_agent_chat_pro_activity_log_column(db)
         yield db
     finally:
         db.close()
@@ -125,6 +151,9 @@ class MessageCreatePayload(BaseModel):
     content: str = Field(default="", max_length=100000)
     image_urls: list[str] = Field(default_factory=list, max_length=5)
     status: str = Field(default="completed", max_length=32)
+    # Rendered "working" activity captured during streaming (thinking, tool calls,
+    # usage) plus its duration. Serialized JSON; persisted on assistant messages.
+    activity_log: str | None = Field(default=None, max_length=200000)
 
 
 def _is_supported_image_url(image_url: str) -> bool:
@@ -243,6 +272,7 @@ def _message_payload(message: AgentChatProMessage) -> dict[str, Any]:
         "role": message.role,
         "content": message.content,
         "image_urls": _image_urls_from_json(getattr(message, "image_urls_json", None)),
+        "activity_log": getattr(message, "activity_log", None) or None,
         "status": message.status,
         "created_at": message.created_at.isoformat() if message.created_at else None,
     }
@@ -725,11 +755,17 @@ async def create_message_api(
             content={"detail": "content or image_urls is required"},
         )
 
+    # Only assistant turns carry a working/activity log; ignore it elsewhere.
+    activity_log = (payload.activity_log or "").strip() or None
+    if role != "assistant":
+        activity_log = None
+
     message = AgentChatProMessage(
         thread_id=thread.id,
         role=role,
         content=content,
         image_urls_json=_image_urls_to_json(image_urls),
+        activity_log=activity_log,
         status=status,
     )
     db.add(message)
