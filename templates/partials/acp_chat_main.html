@@ -1,29 +1,52 @@
 <main class="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border shadow-sm"
       style="background: var(--acp-panel); border-color: var(--acp-border);">
-                <div class="flex shrink-0 flex-col gap-3 border-b p-4 md:flex-row md:items-center md:justify-between"
+                <div class="flex shrink-0 items-center justify-between gap-2 border-b px-3 py-2"
                      style="border-color: var(--acp-border);">
-                    <div class="min-w-0">
-                        <h2 id="acp-active-title" class="truncate text-lg font-semibold">New conversation</h2>
-                        <p id="acp-active-meta" class="mt-1 text-xs" style="color: var(--acp-muted);">Select an agent and send a message to start.</p>
+                    <div class="min-w-0 flex-1">
+                        <h2 id="acp-active-title" class="truncate text-sm font-semibold">New conversation</h2>
+                        <p id="acp-active-meta" class="mt-0.5 truncate text-xs" style="color: var(--acp-muted);">Select an agent and send a message to start.</p>
                     </div>
-                    <div class="flex flex-wrap gap-2">
+                    <div class="flex shrink-0 items-center gap-2">
+                        <button id="acp-fullscreen-toggle"
+                                type="button"
+                                class="acp-theme-toggle"
+                                aria-label="Enter full screen"
+                                title="Full screen">
+                            <span id="acp-fullscreen-icon-enter" class="inline-flex" aria-hidden="true">
+                                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                          d="M8 4H4v4m12-4h4v4M8 20H4v-4m12 4h4v-4" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                          d="M9 9L4 4m11 5l5-5M9 15l-5 5m11-5l5 5" />
+                                </svg>
+                            </span>
+                            <span id="acp-fullscreen-icon-exit" class="hidden inline-flex" aria-hidden="true">
+                                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                          d="M9 4v5H4m11-5v5h5M9 20v-5H4m11 5v-5h5" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                          d="M9 9l-5-5m11 5l5-5M9 15l-5 5m11-5l5 5" />
+                                </svg>
+                            </span>
+                        </button>
+                        <div class="h-5 w-px" style="background: var(--acp-border);"></div>
                         <button id="acp-rename-thread"
                                 type="button"
-                                class="acp-icon-btn inline-flex h-10 w-10 items-center justify-center rounded-xl border transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                                class="acp-icon-btn inline-flex h-9 w-9 items-center justify-center rounded-xl border transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                                 style="border-color: var(--acp-border); background: var(--acp-panel-soft); color: var(--acp-text);"
                                 title="Rename thread"
                                 aria-label="Rename thread">
-                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                       d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                             </svg>
                         </button>
                         <button id="acp-delete-thread"
                                 type="button"
-                                class="acp-icon-btn inline-flex h-10 w-10 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40"
+                                class="acp-icon-btn inline-flex h-9 w-9 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 text-rose-700 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40"
                                 title="Delete thread"
                                 aria-label="Delete thread">
-                            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                       d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                             </svg>

@@ -1,5 +1,41 @@
 <aside class="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border shadow-sm"
        style="background: var(--acp-panel); border-color: var(--acp-border);">
+    <div class="shrink-0 border-b px-4 py-3" style="border-color: var(--acp-border);">
+        <h1 class="text-lg font-semibold tracking-tight">Agent Chat Pro</h1>
+    </div>
+
+    <div class="shrink-0 border-b px-4 py-3" style="border-color: var(--acp-border);">
+        <div class="flex items-center gap-2">
+            <select id="acp-agent-select"
+                    aria-label="Select agent"
+                    class="h-9 min-w-0 flex-1 rounded-xl border px-3 py-1.5 text-xs outline-none transition focus:ring-4"
+                    style="border-color: var(--acp-border); background: var(--acp-panel-soft); color: var(--acp-text); --tw-ring-color: color-mix(in srgb, var(--acp-accent) 25%, transparent);">
+                <option value="">Select an agent</option>
+                {% for agent in agent_options %}
+                <option value="{{ agent.alias }}">{{ agent.name }} ({{ agent.alias }})</option>
+                {% endfor %}
+            </select>
+            <button id="acp-theme-toggle"
+                    type="button"
+                    class="acp-theme-toggle shrink-0"
+                    aria-label="Switch color theme"
+                    title="Switch theme">
+                <span id="acp-theme-icon-moon" class="inline-flex" aria-hidden="true">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+                    </svg>
+                </span>
+                <span id="acp-theme-icon-sun" class="hidden inline-flex" aria-hidden="true">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
+                    </svg>
+                </span>
+            </button>
+        </div>
+    </div>
+
     <div class="shrink-0 border-b p-4" style="border-color: var(--acp-border);">
         <div class="flex items-center justify-between gap-2">
             <div>
