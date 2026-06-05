@@ -26,6 +26,7 @@
     const sendButton = document.getElementById("acp-send-button");
     const sendIcon = document.getElementById("acp-send-icon");
     const sendSpinner = document.getElementById("acp-send-spinner");
+    const sendStop = document.getElementById("acp-send-stop");
     const statusEl = document.getElementById("acp-status");
     const viewerScopeEl = document.getElementById("acp-viewer-scope");
     const approvalPanel = document.getElementById("acp-approval-panel");
@@ -48,6 +49,12 @@
         currentThread: null,
         loadedMessages: [],
         busy: false,
+        // Per-thread background runs, keyed by local thread id. Each run keeps a
+        // DOM-independent `model` so it can keep streaming server-side while the user
+        // is on another thread, and be re-attached (re-rendered) when they switch back.
+        // run = { localThreadId, externalThreadId, agentAlias, controller, stopping,
+        //         finished, model, liveTurn, interrupts, statusText, statusError }
+        runs: new Map(),
         loadingOlder: false,
         messagesHasOlder: false,
         messagesOldestId: null,
@@ -303,15 +310,48 @@
 
     function setBusy(busy) {
         state.busy = busy;
-        const lock = busy || hitlBlocksComposer();
-        sendButton.disabled = lock;
+        const hitlLock = hitlBlocksComposer();
+        const lock = busy || hitlLock;
+        // While busy the primary button becomes a Stop control, so it stays
+        // clickable (only the HITL lock, when not busy, disables it).
+        sendButton.disabled = busy ? false : hitlLock;
         if (composerMenuBtn) composerMenuBtn.disabled = lock;
         if (menuUploadImageBtn) menuUploadImageBtn.disabled = lock;
         if (lock) closeComposerMenu();
         agentSelect.disabled = lock;
         messageInput.readOnly = lock;
+        sendButton.setAttribute("aria-label", busy ? "Stop generating" : "Send message");
+        sendButton.title = busy ? "Stop" : "Send";
         sendIcon.classList.toggle("hidden", busy);
-        sendSpinner.classList.toggle("hidden", !busy);
+        // Spinner is replaced by an explicit Stop glyph while busy.
+        sendSpinner.classList.add("hidden");
+        if (sendStop) {
+            sendStop.classList.toggle("hidden", !busy);
+            sendStop.classList.toggle("flex", busy);
+        }
+    }
+
+    // ---- Background run helpers -------------------------------------------
+    /** The active run for the thread currently on screen, if any. */
+    function viewedRun() {
+        const id = state.currentThread?.id;
+        return id != null ? state.runs.get(id) || null : null;
+    }
+
+    /** Whether a run's thread is the one rendered on screen with a live turn. */
+    function isRunViewed(run) {
+        return !!run && run.liveTurn != null && state.currentThread?.id === run.localThreadId;
+    }
+
+    /** Sync the composer (Send vs Stop) to the viewed thread's run state. */
+    function refreshComposerForView() {
+        const run = viewedRun();
+        setBusy(!!run && !run.finished);
+    }
+
+    /** Detach every live turn from the DOM model (called before clearing chat). */
+    function detachLiveTurns() {
+        for (const run of state.runs.values()) run.liveTurn = null;
     }
 
     function selectedAgent() {
@@ -430,16 +470,21 @@
         }
         threadList.innerHTML = threads.map((thread) => {
             const active = state.currentThread && state.currentThread.id === thread.id;
+            const runForThread = state.runs.get(thread.id);
+            const running = !!runForThread && !runForThread.finished;
             const last = thread.last_message?.content || "No messages yet";
             const whenLabel = formatThreadSidebarLocal(thread.updated_at);
             const whenTitle = formatFullLocalTimestamp(thread.updated_at) || "Updated time unknown";
+            const runningDot = running
+                ? `<span class="inline-flex h-2 w-2 shrink-0 rounded-full motion-safe:animate-pulse" style="background: var(--acp-accent);" title="Generating…" aria-label="Generating"></span>`
+                : "";
             return `
                 <button type="button"
                         data-thread-id="${thread.id}"
                         class="w-full rounded-xl border p-3 text-left transition hover:opacity-90 ${active ? "ring-2" : ""}"
                         style="border-color: ${active ? "var(--acp-accent)" : "var(--acp-border)"}; background: ${active ? "var(--acp-accent-soft)" : "var(--acp-panel-soft)"}; --tw-ring-color: color-mix(in srgb, var(--acp-accent) 40%, transparent);">
                     <div class="flex items-start justify-between gap-2">
-                        <p class="min-w-0 truncate text-sm font-semibold" style="color: var(--acp-text);">${escapeHtml(thread.title || "New chat")}</p>
+                        <p class="flex min-w-0 items-center gap-1.5 truncate text-sm font-semibold" style="color: var(--acp-text);">${runningDot}<span class="truncate">${escapeHtml(thread.title || "New chat")}</span></p>
                         <span class="shrink-0 text-right text-[11px] tabular-nums leading-tight" style="color: var(--acp-muted);" title="${escapeHtml(whenTitle)}">${escapeHtml(whenLabel)}</span>
                     </div>
                     <p class="mt-1 truncate text-xs" style="color: var(--acp-muted);">${escapeHtml(thread.agent?.name || thread.agent?.alias || "Unknown agent")}</p>
