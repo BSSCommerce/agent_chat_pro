@@ -57,13 +57,16 @@
     threadSearch.addEventListener("input", () => scheduleThreadSearch());
 
     newThreadBtn.addEventListener("click", () => {
-        if (state.busy) return;
+        // Do NOT stop a running thread — it keeps generating server-side and can be
+        // resumed by switching back. Just detach its live view and open a blank one.
+        detachLiveTurns();
         state.currentThread = null;
         state.loadedMessages = [];
         clearChat();
         hideApprovalPanel();
         updateActiveHeader();
         renderThreadList();
+        refreshComposerForView();
         messageInput.focus();
         setStatus("New conversation ready");
     });
@@ -110,7 +113,9 @@
 
     composer.addEventListener("submit", (event) => {
         event.preventDefault();
-        if (!state.busy) {
+        if (state.busy) {
+            void stopStream();
+        } else {
             void sendMessage();
         }
     });

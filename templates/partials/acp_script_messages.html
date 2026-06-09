@@ -250,6 +250,60 @@
         return turn;
     }
 
+    /**
+     * DOM-independent record of a streaming turn. The reader updates this even when
+     * the thread is off-screen, so the turn can be rebuilt verbatim on re-attach.
+     * Mirrors the ordered working-log + answer semantics of createStreamingTurn().
+     */
+    function createTurnModel() {
+        return {
+            blocks: [],            // ordered [{ kind: "activity" | "message", md }]
+            activityBlock: null,   // ref into blocks for the cumulative activity upsert
+            answer: "",
+            answerShown: false,
+            startTs: performance.now(),
+            finished: false,
+            pushActivity(md) {
+                if (!this.activityBlock) {
+                    this.activityBlock = { kind: "activity", md };
+                    this.blocks.push(this.activityBlock);
+                } else {
+                    this.activityBlock.md = md;
+                }
+            },
+            commitMessage(md) {
+                const t = (md || "").trim();
+                if (t) this.blocks.push({ kind: "message", md: t });
+            },
+            setAnswer(md) {
+                this.answer = md || "";
+                this.answerShown = true;
+            },
+            activityMarkdown() {
+                return this.blocks.map((b) => (b.md || "").trim()).filter(Boolean).join("\n\n");
+            },
+        };
+    }
+
+    /** Rebuild a live streaming turn from a model so the user re-sees an in-flight run. */
+    function projectModelToTurn(model) {
+        const turn = createStreamingTurn();
+        turn._startTs = model.startTs;   // keep the "Worked for …" timer accurate
+        for (const block of model.blocks) {
+            if (block.kind === "activity") turn.pushActivity(block.md);
+            else turn.commitMessage(block.md);
+        }
+        if (model.answerShown) turn.setAnswer(model.answer);
+        if (model.finished) turn.finish();
+        return turn;
+    }
+
+    /** Re-attach a background run to the on-screen chat (after its messages render). */
+    function attachRunToView(run) {
+        run.liveTurn = projectModelToTurn(run.model);
+        if (run.interrupts && run.interrupts.length) renderApprovalPanel(run.interrupts);
+    }
+
     /** Placeholder bubble while the agent stream has not produced markdown yet. */
     function appendThinkingAssistantBubble() {
         emptyState.classList.add("hidden");
@@ -528,8 +582,11 @@
         closeForkModal();
     });
 
-    async function reloadCurrentThreadMessages() {
+    async function reloadCurrentThreadMessages(threadId = null) {
         if (!state.currentThread) return;
+        // When a background turn finishes for a thread the user has since left,
+        // skip the redraw so we don't clobber the conversation now on screen.
+        if (threadId != null && state.currentThread.id !== threadId) return;
         const prev = state.loadedMessages?.length || 0;
         const tail = Math.min(200, Math.max(20, prev + 8));
         const data = await apiFetch(`/agent-chat-pro/api/threads/${state.currentThread.id}?limit=${tail}`);

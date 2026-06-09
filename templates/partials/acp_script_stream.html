@@ -1,12 +1,19 @@
-    async function sendStream(thread, queryText, imageUrls = []) {
+    // Open the SSE stream for a run and pump events into its DOM-independent model
+    // (and into the live turn when its thread is on-screen). Resolves with
+    // { answer, status, activityLog } when the run ends. It never aborts on its own:
+    // only an explicit Stop aborts run.controller, so the server keeps generating
+    // while the user is on another thread.
+    async function pumpRunStream(run, queryText, imageUrls = []) {
+        const model = run.model;
         const response = await fetch("/api/agent/query/stream", {
             method: "POST",
             credentials: "same-origin",
             headers: { "Content-Type": "application/json" },
+            signal: run.controller.signal,
             body: JSON.stringify({
                 query: queryText,
-                agent_alias: thread.agent.alias,
-                thread_id: thread.external_thread_id,
+                agent_alias: run.agentAlias,
+                thread_id: run.externalThreadId,
                 image_urls: normalizeMessageImageUrls(imageUrls),
             }),
         });
@@ -15,7 +22,6 @@
             throw new Error(data.detail || `Agent request failed: ${response.status}`);
         }
 
-        const turn = createStreamingTurn();
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
@@ -24,10 +30,22 @@
         // authoritative `answer` arrives, the previous one is "working", not the answer.
         let pendingMessage = "";
         let interrupted = false;
+        let cancelled = false;
+
+        // Mirror every update into the model (always) and the live turn (only while
+        // this run's thread is the one rendered on screen).
+        const emitActivity = (md) => { model.pushActivity(md); run.liveTurn?.pushActivity(md); };
+        const emitMessage = (md) => { model.commitMessage(md); run.liveTurn?.commitMessage(md); };
+        const emitAnswer = (md) => { model.setAnswer(md); run.liveTurn?.setAnswer(md); };
+        const emitStatus = (text, err = false) => {
+            run.statusText = text;
+            run.statusError = err;
+            if (isRunViewed(run)) setStatus(text, err);
+        };
 
         function flushPendingToWorking() {
             if (pendingMessage) {
-                turn.commitMessage(pendingMessage);
+                emitMessage(pendingMessage);
                 pendingMessage = "";
             }
         }
@@ -44,95 +62,148 @@
             if (eventType === "error") {
                 throw new Error(payload.detail || "Stream error");
             }
-            if (eventType === "start" && payload.thread_id && thread?.external_thread_id) {
+            if (eventType === "start" && payload.thread_id && run.externalThreadId) {
                 const sid = String(payload.thread_id).trim();
-                if (sid && sid !== String(thread.external_thread_id).trim()) {
-                    setStatus("Stream thread id mismatch — check agent runtime.", true);
+                if (sid && sid !== String(run.externalThreadId).trim()) {
+                    emitStatus("Stream thread id mismatch — check agent runtime.", true);
                 }
             }
             if (eventType === "step" && payload.message) {
                 if ((payload.kind || "").trim() === "activity") {
                     // Live ACP processing timeline → working panel (cumulative render).
-                    turn.pushActivity(payload.message);
+                    emitActivity(payload.message);
                 } else {
                     // Model text: hold as the candidate answer; the prior candidate is
                     // now a superseded step and moves into the working timeline.
                     flushPendingToWorking();
                     pendingMessage = payload.message;
-                    turn.setAnswer(pendingMessage);
+                    emitAnswer(pendingMessage);
                 }
-                setStatus("Receiving response...");
+                emitStatus("Receiving response...");
             }
             if (eventType === "answer" && payload.message) {
                 // Authoritative final answer — never part of "working".
                 pendingMessage = "";
                 finalAnswer = payload.message;
-                turn.setAnswer(finalAnswer);
-                setStatus("Receiving response...");
+                emitAnswer(finalAnswer);
+                emitStatus("Receiving response...");
             }
             if (eventType === "interrupt" && Array.isArray(payload.interrupts) && payload.interrupts.length) {
                 interrupted = true;
                 pendingMessage = "";
                 finalAnswer = "Run paused and requires approval.";
-                turn.setAnswer(finalAnswer);
-                renderApprovalPanel(payload.interrupts);
-                setStatus("Waiting for approval", true);
+                emitAnswer(finalAnswer);
+                run.interrupts = payload.interrupts;
+                if (isRunViewed(run)) renderApprovalPanel(payload.interrupts);
+                emitStatus("Waiting for approval", true);
             }
             if (eventType === "done") {
                 if (payload.status === "interrupted") {
                     interrupted = true;
                     return;
                 }
-                hideApprovalPanel();
+                if (payload.status === "cancelled") {
+                    cancelled = true;
+                    return;
+                }
+                run.interrupts = null;
+                if (isRunViewed(run)) hideApprovalPanel();
             }
         }
 
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
-            let boundary = buffer.indexOf("\n\n");
-            while (boundary !== -1) {
-                const rawEvent = buffer.slice(0, boundary);
-                buffer = buffer.slice(boundary + 2);
-                let eventName = "";
-                const dataLines = [];
-                for (const rawLine of rawEvent.split("\n")) {
-                    const line = rawLine.trimEnd();
-                    if (line.startsWith("event:")) {
-                        eventName = line.slice(6).trim();
-                    } else if (line.startsWith("data:")) {
-                        dataLines.push(line.slice(5).trimStart());
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+                let boundary = buffer.indexOf("\n\n");
+                while (boundary !== -1) {
+                    const rawEvent = buffer.slice(0, boundary);
+                    buffer = buffer.slice(boundary + 2);
+                    let eventName = "";
+                    const dataLines = [];
+                    for (const rawLine of rawEvent.split("\n")) {
+                        const line = rawLine.trimEnd();
+                        if (line.startsWith("event:")) {
+                            eventName = line.slice(6).trim();
+                        } else if (line.startsWith("data:")) {
+                            dataLines.push(line.slice(5).trimStart());
+                        }
                     }
+                    applyEvent(eventName, dataLines.join("\n"));
+                    boundary = buffer.indexOf("\n\n");
                 }
-                applyEvent(eventName, dataLines.join("\n"));
-                boundary = buffer.indexOf("\n\n");
             }
+        } catch (error) {
+            // A user Stop aborts the reader; treat that as a graceful cancellation
+            // rather than an error (the server is stopping the run in parallel).
+            if (run.stopping || error?.name === "AbortError") {
+                cancelled = true;
+            } else {
+                throw error;
+            }
+        }
+
+        if (cancelled) {
+            finalAnswer = pendingMessage || finalAnswer || "_(Generation stopped.)_";
+            emitAnswer(finalAnswer);
+            return { answer: finalAnswer, status: "cancelled", activityLog: null };
         }
 
         if (!finalAnswer) {
             // No explicit answer: fall back to the last pending message, else a notice.
             finalAnswer = pendingMessage || "(stream finished without visible answer)";
-            turn.setAnswer(finalAnswer);
+            emitAnswer(finalAnswer);
         }
-        turn.finish();
 
         // Cap the saved log well under the API limit so a very long run never blocks
         // persistence of the assistant answer itself.
         const ACP_ACTIVITY_LOG_MAX = 180000;
-        let activityMarkdown = turn.activityMarkdown();
+        let activityMarkdown = model.activityMarkdown();
         if (activityMarkdown.length > ACP_ACTIVITY_LOG_MAX) {
             activityMarkdown =
                 activityMarkdown.slice(0, ACP_ACTIVITY_LOG_MAX) + "\n\n…(working log truncated)";
         }
         const activityLog = activityMarkdown
-            ? JSON.stringify({ v: 1, duration_ms: turn.durationMs(), markdown: activityMarkdown })
+            ? JSON.stringify({
+                  v: 1,
+                  duration_ms: Math.round(performance.now() - model.startTs),
+                  markdown: activityMarkdown,
+              })
             : null;
         return {
             answer: finalAnswer,
             status: interrupted ? "interrupted" : "completed",
             activityLog,
         };
+    }
+
+    // Stop only the run of the thread currently on screen. Other threads keep
+    // generating in the background until they finish or are themselves stopped.
+    async function stopStream() {
+        const run = viewedRun();
+        if (!run || run.stopping || run.finished) return;
+        run.stopping = true;
+        setStatus("Stopping…");
+        try {
+            // Ask the server to stop the run (and any Claude ACP / CLI subprocess).
+            await fetch("/api/agent/cancel", {
+                method: "POST",
+                credentials: "same-origin",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    thread_id: run.externalThreadId,
+                    agent_alias: run.agentAlias,
+                }),
+            });
+        } catch {
+            // Best-effort: abort the client stream regardless of the cancel call.
+        }
+        try {
+            run.controller.abort();
+        } catch {
+            // ignore
+        }
     }
 
     async function sendMessage() {
@@ -158,46 +229,123 @@
 
         setBusy(true);
         setStatus("Preparing thread...");
+        let turnThread;
         try {
-            const thread = await createThreadIfNeeded();
-            appendBubbleWithActions({
-                id: null,
-                role: "user",
-                content: rawUserQuery,
-                image_urls: outgoingImages,
-                status: "completed",
-            });
-            messageInput.value = "";
-            clearComposerImages();
-            await saveMessage(thread.id, "user", rawUserQuery, "completed", outgoingImages);
-            await reloadCurrentThreadMessages();
-            setStatus("Streaming response...");
-            const result = await sendStream(state.currentThread, agentQueryText, outgoingImages);
+            turnThread = await createThreadIfNeeded();
+        } catch (error) {
+            setStatus(error.message || "Unexpected error", true);
+            refreshComposerForView();
+            return;
+        }
+        // One in-flight run per thread.
+        if (state.runs.has(turnThread.id)) {
+            setStatus("This conversation is already generating.", true);
+            refreshComposerForView();
+            return;
+        }
+
+        appendBubbleWithActions({
+            id: null,
+            role: "user",
+            content: rawUserQuery,
+            image_urls: outgoingImages,
+            status: "completed",
+        });
+        messageInput.value = "";
+        clearComposerImages();
+        try {
+            await saveMessage(turnThread.id, "user", rawUserQuery, "completed", outgoingImages);
+            await reloadCurrentThreadMessages(turnThread.id);
+        } catch (error) {
+            setStatus(error.message || "Failed to save message", true);
+            refreshComposerForView();
+            return;
+        }
+
+        // Register the background run. Attach a live turn only if its thread is the
+        // one currently on screen (otherwise it streams headless into the model).
+        const run = {
+            localThreadId: turnThread.id,
+            externalThreadId: turnThread.external_thread_id,
+            agentAlias: turnThread.agent.alias,
+            controller: new AbortController(),
+            stopping: false,
+            finished: false,
+            model: createTurnModel(),
+            liveTurn: null,
+            interrupts: null,
+            statusText: "Streaming response...",
+            statusError: false,
+        };
+        state.runs.set(turnThread.id, run);
+        if (state.currentThread?.id === turnThread.id) {
+            run.liveTurn = createStreamingTurn();
+        }
+        renderThreadList();
+        refreshComposerForView();
+        // Fire and forget: the user is free to open a New thread / switch away while
+        // this keeps streaming and persists its result to its own thread.
+        void runLifecycle(run, turnThread, agentQueryText, outgoingImages);
+    }
+
+    // Background lifecycle for one run: stream → persist → cleanup. Every UI side
+    // effect is gated on whether the run's thread is still the one being viewed, so a
+    // run finishing off-screen never disturbs the conversation now on screen.
+    async function runLifecycle(run, turnThread, agentQueryText, outgoingImages) {
+        if (isRunViewed(run)) setStatus("Streaming response...");
+        try {
+            const result = await pumpRunStream(run, agentQueryText, outgoingImages);
             await saveMessage(
-                state.currentThread.id, "assistant", result.answer, result.status, [], result.activityLog,
+                run.localThreadId, "assistant", result.answer, result.status, [], result.activityLog,
             );
-            if (state.currentThread?.fork_bootstrap_pending) {
-                await apiFetch(`/agent-chat-pro/api/threads/${state.currentThread.id}`, {
+            if (turnThread.fork_bootstrap_pending) {
+                await apiFetch(`/agent-chat-pro/api/threads/${run.localThreadId}`, {
                     method: "PATCH",
                     body: JSON.stringify({ fork_bootstrap_pending: false }),
                 });
-                state.currentThread = { ...state.currentThread, fork_bootstrap_pending: false };
+                if (state.currentThread?.id === run.localThreadId) {
+                    state.currentThread = { ...state.currentThread, fork_bootstrap_pending: false };
+                }
             }
-            await reloadCurrentThreadMessages();
+            run.finished = true;
+            run.model.finished = true;
+            run.liveTurn?.finish();
+            if (state.currentThread?.id === run.localThreadId) {
+                await reloadCurrentThreadMessages(run.localThreadId);
+                if (result.status === "cancelled") {
+                    setStatus("Stopped");
+                } else {
+                    setStatus(result.status === "interrupted" ? "Run paused for approval" : "Done");
+                }
+            }
             await refreshThreads();
-            setStatus(result.status === "interrupted" ? "Run paused for approval" : "Done");
         } catch (error) {
-            setStatus(error.message || "Unexpected error", true);
-            appendBubble("assistant", `Error: ${error.message || "Unexpected error"}`, "error");
-            if (state.currentThread) {
+            run.finished = true;
+            run.model.finished = true;
+            run.liveTurn?.finish();
+            // A user Stop that aborted the request before the stream began is not
+            // an error — swallow it quietly.
+            if (run.stopping || error?.name === "AbortError") {
+                if (isRunViewed(run)) setStatus("Stopped");
+            } else {
+                const msg = `Error: ${error.message || "Unexpected error"}`;
+                if (state.currentThread?.id === run.localThreadId) {
+                    setStatus(error.message || "Unexpected error", true);
+                    appendBubble("assistant", msg, "error");
+                }
                 try {
-                    await saveMessage(state.currentThread.id, "assistant", `Error: ${error.message || "Unexpected error"}`, "error");
-                    await reloadCurrentThreadMessages();
+                    await saveMessage(run.localThreadId, "assistant", msg, "error");
+                    if (state.currentThread?.id === run.localThreadId) {
+                        await reloadCurrentThreadMessages(run.localThreadId);
+                    }
+                    await refreshThreads();
                 } catch {
                     // The visible error is enough if persistence also fails.
                 }
             }
         } finally {
-            setBusy(false);
+            state.runs.delete(run.localThreadId);
+            renderThreadList();
+            refreshComposerForView();
         }
     }
