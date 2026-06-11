@@ -141,6 +141,17 @@
         imageInput?.click();
     });
 
+    menuLongHorizonBtn?.addEventListener("click", () => {
+        if (state.busy) return;
+        setLongHorizon(!state.longHorizon);
+        closeComposerMenu();
+        setStatus(
+            state.longHorizon
+                ? "Long-horizon task on — your next message runs as a background job."
+                : "Long-horizon task off.",
+        );
+    });
+
     document.addEventListener("click", (event) => {
         if (!isComposerMenuOpen()) return;
         const target = event.target;

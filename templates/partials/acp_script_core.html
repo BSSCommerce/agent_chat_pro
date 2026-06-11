@@ -22,6 +22,9 @@
     const composerMenuBtn = document.getElementById("acp-composer-menu-btn");
     const composerMenu = document.getElementById("acp-composer-menu");
     const menuUploadImageBtn = document.getElementById("acp-menu-upload-image");
+    const menuLongHorizonBtn = document.getElementById("acp-menu-longhorizon");
+    const menuLongHorizonCheck = document.getElementById("acp-menu-longhorizon-check");
+    const modeBadge = document.getElementById("acp-mode-badge");
     const composerImagePreview = document.getElementById("acp-composer-image-preview");
     const sendButton = document.getElementById("acp-send-button");
     const sendIcon = document.getElementById("acp-send-icon");
@@ -60,6 +63,9 @@
         messagesOldestId: null,
         messagesTotal: 0,
         pendingForkMessageId: null,
+        // When on, the next message starts an unattended long-horizon background
+        // job (POST /api/agent/jobs) instead of a live /query/stream turn.
+        longHorizon: false,
     };
 
     let threadSearchTimer = null;
@@ -306,6 +312,17 @@
 
     function toggleComposerMenu() {
         setComposerMenuOpen(!isComposerMenuOpen());
+    }
+
+    function setLongHorizon(on) {
+        const enabled = Boolean(on);
+        state.longHorizon = enabled;
+        if (menuLongHorizonBtn) menuLongHorizonBtn.setAttribute("aria-checked", enabled ? "true" : "false");
+        if (menuLongHorizonCheck) menuLongHorizonCheck.classList.toggle("hidden", !enabled);
+        if (modeBadge) {
+            modeBadge.classList.toggle("hidden", !enabled);
+            modeBadge.classList.toggle("inline-flex", enabled);
+        }
     }
 
     function setBusy(busy) {

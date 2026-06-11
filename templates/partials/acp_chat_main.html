@@ -120,6 +120,21 @@
                                         </svg>
                                         <span>Upload image</span>
                                     </button>
+                                    <button type="button"
+                                            id="acp-menu-longhorizon"
+                                            class="acp-composer-menu-item"
+                                            role="menuitemcheckbox"
+                                            aria-checked="false"
+                                            title="Run as an unattended background job that keeps going if you leave or close the tab">
+                                        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8"
+                                                  d="M12 8v4l3 2m6-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                        <span class="flex-1 text-left">Long-horizon task</span>
+                                        <svg id="acp-menu-longhorizon-check" class="hidden h-4 w-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    </button>
                                 </div>
                             </div>
                             <button id="acp-send-button"
@@ -146,7 +161,16 @@
                         </div>
                     </div>
                     <div class="mt-2 flex flex-col gap-1 text-xs sm:flex-row sm:items-center sm:justify-between" style="color: var(--acp-muted);">
-                        <span>+ for attachments · Paste images · Enter to send · Shift+Enter new line</span>
+                        <span class="flex flex-wrap items-center gap-2">
+                            <span id="acp-mode-badge"
+                                  class="hidden items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
+                                <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 2m6-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                Long-horizon
+                            </span>
+                            <span>+ for attachments · Paste images · Enter to send · Shift+Enter new line</span>
+                        </span>
                         <span id="acp-status">Idle</span>
                     </div>
                 </form>

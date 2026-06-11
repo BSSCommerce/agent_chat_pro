@@ -1,3 +1,22 @@
+    // Serialize a run's working timeline into the JSON activity log persisted on
+    // the assistant message. Capped well under the API limit so a very long run
+    // never blocks persistence of the answer itself.
+    function buildActivityLog(model) {
+        const ACP_ACTIVITY_LOG_MAX = 180000;
+        let activityMarkdown = model.activityMarkdown();
+        if (activityMarkdown.length > ACP_ACTIVITY_LOG_MAX) {
+            activityMarkdown =
+                activityMarkdown.slice(0, ACP_ACTIVITY_LOG_MAX) + "\n\n…(working log truncated)";
+        }
+        return activityMarkdown
+            ? JSON.stringify({
+                  v: 1,
+                  duration_ms: Math.round(performance.now() - model.startTs),
+                  markdown: activityMarkdown,
+              })
+            : null;
+    }
+
     // Open the SSE stream for a run and pump events into its DOM-independent model
     // (and into the live turn when its thread is on-screen). Resolves with
     // { answer, status, activityLog } when the run ends. It never aborts on its own:
@@ -156,25 +175,151 @@
             emitAnswer(finalAnswer);
         }
 
-        // Cap the saved log well under the API limit so a very long run never blocks
-        // persistence of the assistant answer itself.
-        const ACP_ACTIVITY_LOG_MAX = 180000;
-        let activityMarkdown = model.activityMarkdown();
-        if (activityMarkdown.length > ACP_ACTIVITY_LOG_MAX) {
-            activityMarkdown =
-                activityMarkdown.slice(0, ACP_ACTIVITY_LOG_MAX) + "\n\n…(working log truncated)";
-        }
-        const activityLog = activityMarkdown
-            ? JSON.stringify({
-                  v: 1,
-                  duration_ms: Math.round(performance.now() - model.startTs),
-                  markdown: activityMarkdown,
-              })
-            : null;
         return {
             answer: finalAnswer,
             status: interrupted ? "interrupted" : "completed",
-            activityLog,
+            activityLog: buildActivityLog(model),
+        };
+    }
+
+    // Run a message as an unattended long-horizon background job. Unlike
+    // pumpRunStream this first creates a durable job (POST /api/agent/jobs) and
+    // then *tails* its event store (GET /api/agent/jobs/{id}/stream); the server
+    // keeps running even if the user leaves the thread or closes the tab. Resolves
+    // with { answer, status, activityLog } using the same model interface so the
+    // surrounding lifecycle (persist → render) is identical to a live turn.
+    async function pumpRunJob(run, queryText, imageUrls = []) {
+        const model = run.model;
+        const emitActivity = (md) => { model.pushActivity(md); run.liveTurn?.pushActivity(md); };
+        const emitAnswer = (md) => { model.setAnswer(md); run.liveTurn?.setAnswer(md); };
+        const emitStatus = (text, err = false) => {
+            run.statusText = text;
+            run.statusError = err;
+            if (isRunViewed(run)) setStatus(text, err);
+        };
+
+        const createRes = await fetch("/api/agent/jobs", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            signal: run.controller.signal,
+            body: JSON.stringify({
+                query: queryText,
+                agent_alias: run.agentAlias,
+                thread_id: run.externalThreadId,
+                image_urls: normalizeMessageImageUrls(imageUrls),
+            }),
+        });
+        if (!createRes.ok) {
+            const data = await createRes.json().catch(() => ({}));
+            throw new Error(data.detail || `Failed to start background job: ${createRes.status}`);
+        }
+        const created = await createRes.json();
+        run.jobId = created.job_id;
+        emitStatus(`Background job #${created.job_id} running — safe to leave this thread.`);
+
+        let finalAnswer = "";
+        let terminal = false;
+        let terminalStatus = "completed";
+        let cancelled = false;
+        let streamError = null;
+
+        function applyJobEvent(eventType, p) {
+            if (eventType === "error") {
+                streamError = new Error(p.detail || "Background job error");
+                return;
+            }
+            if (eventType === "activity" && p.message) {
+                emitActivity(p.message);
+                emitStatus("Working…");
+            }
+            if ((eventType === "message" || eventType === "answer") && p.message) {
+                finalAnswer = p.message;
+                emitAnswer(finalAnswer);
+                emitStatus("Receiving response...");
+            }
+            if (eventType === "done" || eventType === "end") {
+                terminal = true;
+                terminalStatus = p.status || "completed";
+            }
+        }
+
+        // Tail the durable event store. Each (re)connection replays from id 0;
+        // because we always render the latest message into the same model, a
+        // reconnect is idempotent. Retry a few times on unexpected drops.
+        let attempts = 0;
+        while (!terminal && attempts < 6) {
+            attempts += 1;
+            let sawData = false;
+            try {
+                const response = await fetch(
+                    `/api/agent/jobs/${created.job_id}/stream?after_event_id=0`,
+                    { method: "GET", credentials: "same-origin", signal: run.controller.signal },
+                );
+                if (!response.ok || !response.body) {
+                    const data = await response.json().catch(() => ({}));
+                    throw new Error(data.detail || `Job stream failed: ${response.status}`);
+                }
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = "";
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    sawData = true;
+                    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+                    let boundary = buffer.indexOf("\n\n");
+                    while (boundary !== -1) {
+                        const rawEvent = buffer.slice(0, boundary);
+                        buffer = buffer.slice(boundary + 2);
+                        let evName = "";
+                        const dataLines = [];
+                        for (const rawLine of rawEvent.split("\n")) {
+                            const line = rawLine.trimEnd();
+                            if (line.startsWith("event:")) evName = line.slice(6).trim();
+                            else if (line.startsWith("data:")) dataLines.push(line.slice(5).trimStart());
+                        }
+                        const dataText = dataLines.join("\n");
+                        if (evName || dataText) {
+                            let obj = {};
+                            try { obj = JSON.parse(dataText); } catch { obj = {}; }
+                            applyJobEvent(evName || "message", obj);
+                        }
+                        boundary = buffer.indexOf("\n\n");
+                    }
+                    if (terminal || streamError) break;
+                }
+            } catch (error) {
+                // A user Stop aborts the reader; the server cancels the job in
+                // parallel, so treat it as a graceful cancellation.
+                if (run.stopping || error?.name === "AbortError") {
+                    cancelled = true;
+                    break;
+                }
+                if (terminal) break;
+                await new Promise((r) => setTimeout(r, 1000));
+            }
+            if (streamError) throw streamError;
+            if (!terminal && !sawData) {
+                await new Promise((r) => setTimeout(r, 1000));
+            }
+        }
+
+        if (cancelled || terminalStatus === "cancelled") {
+            finalAnswer = finalAnswer || "_(Background job stopped.)_";
+            emitAnswer(finalAnswer);
+            return { answer: finalAnswer, status: "cancelled", activityLog: buildActivityLog(model) };
+        }
+        if (!finalAnswer) {
+            finalAnswer = terminal
+                ? "(job finished without visible answer)"
+                : "_(Stopped tailing job — it may still be running in the background.)_";
+            emitAnswer(finalAnswer);
+        }
+        return {
+            answer: finalAnswer,
+            status: terminalStatus === "error" ? "error" : "completed",
+            activityLog: buildActivityLog(model),
         };
     }
 
@@ -186,16 +331,27 @@
         run.stopping = true;
         setStatus("Stopping…");
         try {
-            // Ask the server to stop the run (and any Claude ACP / CLI subprocess).
-            await fetch("/api/agent/cancel", {
-                method: "POST",
-                credentials: "same-origin",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    thread_id: run.externalThreadId,
-                    agent_alias: run.agentAlias,
-                }),
-            });
+            if (run.longHorizon && run.jobId != null) {
+                // Durable cancel: ask the server to stop the background job. The
+                // job may be owned by another worker, so this flags it to stop.
+                await fetch(`/api/agent/jobs/${run.jobId}/cancel`, {
+                    method: "POST",
+                    credentials: "same-origin",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ agent_alias: run.agentAlias }),
+                });
+            } else {
+                // Ask the server to stop the run (and any Claude ACP / CLI subprocess).
+                await fetch("/api/agent/cancel", {
+                    method: "POST",
+                    credentials: "same-origin",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        thread_id: run.externalThreadId,
+                        agent_alias: run.agentAlias,
+                    }),
+                });
+            }
         } catch {
             // Best-effort: abort the client stream regardless of the cancel call.
         }
@@ -276,6 +432,10 @@
             interrupts: null,
             statusText: "Streaming response...",
             statusError: false,
+            // Snapshot the mode at send time so toggling it later never affects an
+            // in-flight run. jobId is filled in once the background job is created.
+            longHorizon: state.longHorizon,
+            jobId: null,
         };
         state.runs.set(turnThread.id, run);
         if (state.currentThread?.id === turnThread.id) {
@@ -292,9 +452,13 @@
     // effect is gated on whether the run's thread is still the one being viewed, so a
     // run finishing off-screen never disturbs the conversation now on screen.
     async function runLifecycle(run, turnThread, agentQueryText, outgoingImages) {
-        if (isRunViewed(run)) setStatus("Streaming response...");
+        if (isRunViewed(run)) {
+            setStatus(run.longHorizon ? "Starting background job..." : "Streaming response...");
+        }
         try {
-            const result = await pumpRunStream(run, agentQueryText, outgoingImages);
+            const result = run.longHorizon
+                ? await pumpRunJob(run, agentQueryText, outgoingImages)
+                : await pumpRunStream(run, agentQueryText, outgoingImages);
             await saveMessage(
                 run.localThreadId, "assistant", result.answer, result.status, [], result.activityLog,
             );
